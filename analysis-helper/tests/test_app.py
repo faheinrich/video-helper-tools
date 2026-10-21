@@ -136,3 +136,19 @@ def test_the_check_looks_for_this_apps_tags(qapp, monkeypatch):
     assert (window.update_checker.tag_prefix, window.update_checker.current_version) == (app.SPEC.tag_prefix, __version__)
     assert app.SPEC.tag_prefix.endswith("-v") and app.SPEC.tag_prefix.startswith("analysis")
     window.close()
+
+
+def test_about_dialog_tells_how_the_update_check_went(qapp, monkeypatch):
+    texts = []
+    monkeypatch.setattr(QMessageBox, "setText", lambda self, text: texts.append(text))
+    window = app.AnalysisHelperWindow()
+    window.show_about()
+    assert "ausgeschaltet" in texts[-1]                       # the tests switch the check off
+
+    window.update_checker.status, window.update_checker.detail = "current", "9.9.9"
+    window.show_about()
+    assert "neueste Version" in texts[-1] and "9.9.9" in texts[-1]
+    window.update_checker.status, window.update_checker.detail = "failed", "SSLError: <bad>"
+    window.show_about()
+    assert "fehlgeschlagen" in texts[-1] and "&lt;bad&gt;" in texts[-1]   # shown as text, not as markup
+    window.close()

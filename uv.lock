@@ -116,7 +116,7 @@ wheels = [
 
 [[package]]
 name = "archive-helper"
-version = "0.0.2"
+version = "0.0.3"
 source = { editable = "archive-helper" }
 dependencies = [
     { name = "pyside6" },
@@ -2629,6 +2629,7 @@ name = "video-helper-core"
 version = "0.0.1"
 source = { editable = "core" }
 dependencies = [
+    { name = "certifi" },
     { name = "pyside6" },
 ]
 
@@ -2640,7 +2641,10 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "pyside6", specifier = ">=6.10" }]
+requires-dist = [
+    { name = "certifi" },
+    { name = "pyside6", specifier = ">=6.10" },
+]
 
 [package.metadata.requires-dev]
 dev = [

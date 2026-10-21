@@ -6,6 +6,8 @@ The check runs in a background thread and fails silently (offline, rate limit, .
 import json
 import os
 import re
+import ssl
+import sys
 import threading
 import urllib.request
 
@@ -44,32 +46,68 @@ def newer_release(releases, tag_prefix, current_version):
     return None
 
 
+def ssl_context():
+    """TLS settings with the certificate list shipped in the app (certifi), so a bundled Python that cannot find the
+    system's list does not make every check fail. Without certifi the system's list is used."""
+    try:
+        import certifi
+
+        return ssl.create_default_context(cafile=certifi.where())
+    except (ImportError, OSError):
+        return ssl.create_default_context()
+
+
 def fetch_releases():
     request = urllib.request.Request(RELEASES_URL, headers={
         "Accept": "application/vnd.github+json", "User-Agent": "video-helper-tools-update-check"})
-    with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
+    with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS, context=ssl_context()) as response:
         return json.load(response)
 
 
 class UpdateChecker(QObject):
-    """Emits found(version, url) once if a newer release exists; never raises."""
+    """Emits found(version, url) once if a newer release exists; never raises. `status` and `detail` say what happened
+    (for the About dialog), so a missing hint can be told apart from a failed check."""
     found = Signal(str, str)
 
     def __init__(self, tag_prefix, current_version, parent=None):
         super().__init__(parent)
         self.tag_prefix, self.current_version = tag_prefix, current_version
+        self.status, self.detail = "waiting", ""     # waiting, checking, newer, current, failed, disabled
 
     def start(self):
         if os.environ.get(DISABLE_ENV):
+            self.status = "disabled"
             return None
+        self.status = "checking"
         thread = threading.Thread(target=self.run, daemon=True)  # a daemon never keeps the app from quitting
         thread.start()
         return thread
 
     def run(self):
         try:
-            release = newer_release(fetch_releases(), self.tag_prefix, self.current_version)
-        except (OSError, ValueError, AttributeError):
+            releases = fetch_releases()
+            release = newer_release(releases, self.tag_prefix, self.current_version)
+            latest = newest_release(releases, self.tag_prefix)
+        except Exception as e:   # any failure (network, TLS, unexpected answer) must end quietly in the log, not in the app
+            self.status, self.detail = "failed", f"{type(e).__name__}: {e}"
+            print(f"Update check failed: {self.detail}", file=sys.stderr)   # visible when started from a terminal
             return
         if release:
+            self.status, self.detail = "newer", release[0]
             self.found.emit(*release)
+        else:
+            self.status, self.detail = "current", latest[0] if latest else ""
+
+    def describe(self):
+        """One line for the About dialog."""
+        from video_helper_core.i18n import tr
+
+        if self.status == "disabled":
+            return tr("Update check: switched off.")
+        if self.status == "failed":
+            return tr("Update check failed: {error}", error=self.detail)
+        if self.status == "newer":
+            return tr("Update check: version {version} is available.", version=self.detail)
+        if self.status == "current":
+            return tr("Update check: this is the newest version (latest release: {version}).", version=self.detail or "–")
+        return tr("Update check: still running…")

@@ -2,6 +2,7 @@
 
 An app describes itself with an AppSpec and its tools with Tool entries; run() starts it.
 """
+import html
 import json
 import os
 import sys
@@ -328,7 +329,9 @@ class SuiteWindow(QMainWindow):
         msg.setWindowTitle(tr("About {name}", name=self.spec.name))
         msg.setTextFormat(Qt.RichText)
         msg.setTextInteractionFlags(Qt.TextBrowserInteraction)  # makes the link clickable
-        msg.setText(f'{self.spec.about(self.spec.version)}<p><a href="{REPO_URL}">{REPO_URL.removeprefix("https://")}</a></p>')
+        checker = getattr(self, "update_checker", None)
+        update_line = f"<p><small>{html.escape(checker.describe())}</small></p>" if checker is not None else ""
+        msg.setText(f'{self.spec.about(self.spec.version)}<p><a href="{REPO_URL}">{REPO_URL.removeprefix("https://")}</a></p>{update_line}')
         msg.exec()
 
     def change_language(self, index):

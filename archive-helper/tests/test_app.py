@@ -158,3 +158,19 @@ def test_tool_icons_and_names_share_one_centre_line(qapp):
         label = button.parentWidget().findChildren(type(window.landing_page.version_label))[0]
         assert abs(button.geometry().center().x() - label.geometry().center().x()) <= 1
     window.close()
+
+
+def test_about_dialog_tells_how_the_update_check_went(qapp, monkeypatch):
+    texts = []
+    monkeypatch.setattr(QMessageBox, "setText", lambda self, text: texts.append(text))
+    window = app.ArchiveHelperWindow()
+    window.show_about()
+    assert "ausgeschaltet" in texts[-1]                       # the tests switch the check off
+
+    window.update_checker.status, window.update_checker.detail = "current", "9.9.9"
+    window.show_about()
+    assert "neueste Version" in texts[-1] and "9.9.9" in texts[-1]
+    window.update_checker.status, window.update_checker.detail = "failed", "SSLError: <bad>"
+    window.show_about()
+    assert "fehlgeschlagen" in texts[-1] and "&lt;bad&gt;" in texts[-1]   # shown as text, not as markup
+    window.close()

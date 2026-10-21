@@ -55,4 +55,9 @@ GERMAN = {
     'About {name}': 'Über {name}',
     'Please stop running jobs first, then change the language.':
         'Bitte beende zuerst laufende Aufträge und ändere dann die Sprache.',
+    'Update check: switched off.': 'Update-Prüfung: ausgeschaltet.',
+    'Update check failed: {error}': 'Update-Prüfung fehlgeschlagen: {error}',
+    'Update check: version {version} is available.': 'Update-Prüfung: Version {version} ist verfügbar.',
+    'Update check: this is the newest version (latest release: {version}).': 'Update-Prüfung: Das ist die neueste Version (letztes Release: {version}).',
+    'Update check: still running…': 'Update-Prüfung: läuft noch…',
 }

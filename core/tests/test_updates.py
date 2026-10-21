@@ -80,11 +80,68 @@ def test_fetch_releases_asks_github_with_a_user_agent(monkeypatch):
 
     seen = {}
 
-    def fake_urlopen(request, timeout):
-        seen["url"], seen["agent"], seen["timeout"] = request.full_url, request.get_header("User-agent"), timeout
+    def fake_urlopen(request, timeout, context):
+        seen["url"], seen["agent"], seen["timeout"], seen["context"] = request.full_url, request.get_header("User-agent"), timeout, context
         return io.BytesIO(json.dumps(RELEASES).encode())
 
     monkeypatch.setattr(updates.urllib.request, "urlopen", fake_urlopen)
     assert updates.fetch_releases() == RELEASES
     assert seen["url"].startswith("https://api.github.com/repos/faheinrich/video-helper-tools/releases")
-    assert seen["agent"] and seen["timeout"] == updates.TIMEOUT_SECONDS
+    assert seen["agent"] and seen["timeout"] == updates.TIMEOUT_SECONDS and seen["context"] is not None
+
+
+def test_tls_uses_the_certificate_list_shipped_with_the_app(monkeypatch):
+    import certifi
+
+    asked = []
+    monkeypatch.setattr(updates.ssl, "create_default_context", lambda **kw: asked.append(kw) or object())
+    updates.ssl_context()
+    assert asked == [{"cafile": certifi.where()}]
+
+
+def test_tls_falls_back_to_the_system_certificates_without_certifi(monkeypatch):
+    import builtins
+
+    real_import = builtins.__import__
+
+    def no_certifi(name, *args, **kwargs):
+        if name == "certifi":
+            raise ImportError("not installed")
+        return real_import(name, *args, **kwargs)
+
+    asked = []
+    monkeypatch.setattr(builtins, "__import__", no_certifi)
+    monkeypatch.setattr(updates.ssl, "create_default_context", lambda **kw: asked.append(kw) or object())
+    updates.ssl_context()
+    assert asked == [{}]
+
+
+@pytest.mark.parametrize("error", [RuntimeError("odd"), updates.ssl.SSLCertVerificationError("certificate verify failed"), KeyError("x")])
+def test_any_failure_is_recorded_not_raised(qapp, monkeypatch, error):
+    def fail():
+        raise error
+
+    checker = updates.UpdateChecker("archive-v", "0.0.1")
+    monkeypatch.delenv(updates.DISABLE_ENV)
+    monkeypatch.setattr(updates, "fetch_releases", fail)
+    checker.start().join(5)
+    assert checker.status == "failed" and type(error).__name__ in checker.detail
+    assert "fehlgeschlagen" in checker.describe() and checker.detail in checker.describe()
+
+
+def test_the_status_tells_what_the_check_found(qapp, monkeypatch):
+    monkeypatch.delenv(updates.DISABLE_ENV)
+    monkeypatch.setattr(updates, "fetch_releases", lambda: RELEASES)
+    newer = updates.UpdateChecker("archive-v", "0.0.1")
+    assert newer.status == "waiting" and "läuft noch" in newer.describe()
+    newer.start().join(5)
+    assert newer.status == "newer" and "0.0.10" in newer.describe() and "verfügbar" in newer.describe()
+    current = updates.UpdateChecker("archive-v", "0.0.10")
+    current.start().join(5)
+    assert current.status == "current" and "neueste Version" in current.describe() and "0.0.10" in current.describe()
+
+
+def test_a_switched_off_check_says_so(monkeypatch):
+    monkeypatch.setenv(updates.DISABLE_ENV, "1")
+    checker = updates.UpdateChecker("archive-v", "0.0.1")
+    assert checker.start() is None and checker.status == "disabled" and "ausgeschaltet" in checker.describe()

@@ -6,6 +6,11 @@ All notable changes to the two apps and the shared core. The format follows
 
 ## [Unreleased]
 
+### Both apps
+- Fixed (probably): the update check could fail silently on a Mac where the bundled Python did not find the system's
+  certificate list. The check now uses the certificates shipped with the app (certifi), records any failure, and the
+  About dialog says how the check went ("this is the newest version (latest release: …)", "failed: …", "switched off").
+
 ## [0.0.3] - 2026-10-21
 
 Archive Helper `archive-v0.0.3`. Analysis Helper has no changes of its own and stays at 0.0.2.

@@ -6,6 +6,10 @@ All notable changes to the two apps and the shared core. The format follows
 
 ## [Unreleased]
 
+### Development
+- Tests: the shared Qt test application cleans up its windows and threads when the session ends. Without it the Python
+  process crashed on exit (exit code 139) on macOS when coverage was on, after all tests had passed, and failed the CI job.
+
 ### Both apps
 - Fixed (probably): the update check could fail silently on a Mac where the bundled Python did not find the system's
   certificate list. The check now uses the certificates shipped with the app (certifi), records any failure, and the

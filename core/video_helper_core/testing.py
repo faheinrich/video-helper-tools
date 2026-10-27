@@ -73,9 +73,23 @@ def reset_language():
 
 @pytest.fixture(scope="session")
 def qapp():
+    import gc
+
+    from PySide6.QtCore import QEvent, QThreadPool
     from PySide6.QtWidgets import QApplication
 
-    return QApplication.instance() or QApplication([])
+    app = QApplication.instance() or QApplication([])
+    yield app
+    # Tidy up while Python is still fully alive: Qt objects that are left to the interpreter's shutdown can crash it
+    # (seen on macOS with coverage switched on).
+    for widget in app.topLevelWidgets():
+        widget.close()
+        widget.deleteLater()
+    QThreadPool.globalInstance().waitForDone(10_000)
+    app.processEvents()
+    app.sendPostedEvents(None, QEvent.DeferredDelete)
+    gc.collect()
+    app.processEvents()
 
 
 @pytest.fixture(autouse=True)

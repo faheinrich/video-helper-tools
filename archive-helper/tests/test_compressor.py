@@ -226,13 +226,30 @@ def test_postfix_cannot_leave_the_target_folder_or_overwrite_the_original(qapp, 
     assert not rows["movie.mov"].conflict and rows["movie.mov"].dst.name == "movie.mp4"
 
 
+def test_hidden_files_and_folders_are_ignored_by_default(qapp, make_gui, tmp_path):
+    src = tmp_path / "src"
+    make_named_videos(src, "clip.mp4", ".secret.mp4", "._clip.mp4")
+    make_named_videos(src / ".hermes" / "cache", "frame.mp4")
+    make_named_videos(src / "trip", "beach.mov")
+    gui = make_gui()
+    assert gui.cb_skip_hidden.isChecked()
+    scan(qapp, gui, str(src), str(tmp_path / "dst"))
+    assert sorted(row.src.name for row in gui.model.rows) == ["beach.mov", "clip.mp4"]
+
+    gui.cb_skip_hidden.setChecked(False)  # macOS "._" metadata files are never videos
+    scan(qapp, gui, str(src), str(tmp_path / "dst"))
+    assert sorted(row.src.name for row in gui.model.rows) == [".secret.mp4", "beach.mov", "clip.mp4", "frame.mp4"]
+
+
 def test_name_settings_are_saved_as_defaults(qapp, make_gui, tmp_path):
     gui = make_gui()
     gui.txt_postfix.setText("_small")
     gui.txt_excludes.setText("_a, _b")
+    gui.cb_skip_hidden.setChecked(False)
     gui.save_defaults()
     restored = make_gui()
     assert (restored.txt_postfix.text(), restored.txt_excludes.text()) == ("_small", "_a, _b")
+    assert not restored.cb_skip_hidden.isChecked()
 
 
 def test_quality_presets_and_custom_values(qapp, make_gui):

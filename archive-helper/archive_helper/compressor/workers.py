@@ -22,7 +22,7 @@ class UnifiedScanWorker(QThread):
     scan_finished = Signal(list)
     
     def __init__(self, src_dir, dst_dir, flatten=False, sort_by="name_asc", postfix=DEFAULT_POSTFIX, excludes=(),
-                 files=None):
+                 files=None, skip_hidden=True):
         """files: a hand-picked list of videos instead of everything below src_dir. Their results go to dst_dir, or
         next to each original when dst_dir is empty."""
         super().__init__()
@@ -33,17 +33,32 @@ class UnifiedScanWorker(QThread):
         self.postfix = postfix
         # Results of earlier runs lying in the source folder are never compressed again.
         self.excludes = tuple(e.lower() for e in excludes) + ((postfix.lower(),) if postfix else ())
+        self.skip_hidden = skip_hidden
         self.sort_by = sort_by
         self.video_types = [".mov", ".mp4", ".avi", ".mts", ".ogv", ".m4v", ".mkv"]
-    
+
+    def find_videos(self):
+        """Videos below src_dir. Hidden folders (".hermes", ".Trash", …) are not even entered when skipped."""
+        found = []
+        for folder, subfolders, names in os.walk(self.src_dir):
+            if self.skip_hidden:
+                subfolders[:] = [d for d in subfolders if not d.startswith(".")]
+            for name in names:
+                # "._clip.mov" are macOS metadata files, never videos.
+                if name.startswith("._") or (self.skip_hidden and name.startswith(".")):
+                    continue
+                path = Path(folder) / name
+                if path.suffix.lower() in self.video_types and path.is_file():
+                    found.append(path)
+        return found
+
     def run(self):
         try:
             # 1. Gather all source files
             if self.files is not None:
                 orig_files = [p for p in self.files if p.is_file()]
             else:
-                orig_files = [p for p in self.src_dir.rglob("*") if
-                              p.is_file() and not p.name.startswith(".") and p.suffix.lower() in self.video_types]
+                orig_files = self.find_videos()
 
             candidates = []
             for src_path in orig_files:

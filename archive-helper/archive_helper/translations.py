@@ -50,7 +50,11 @@ register_german({
     'Videos that already have a result in the target folder are compressed again.':
         'Videos, die schon ein Ergebnis im Zielordner haben, werden neu komprimiert.',
     'Test run (first second only)': 'Testlauf (nur 1. Sekunde)',
-    'Names': 'Namen',
+    'Search': 'Suche',
+    'Ignore hidden files/folders': 'Versteckte Dateien/Ordner ignorieren',
+    'Skips everything whose name starts with a dot, e.g. app data in .hermes or .Trash.': 'Überspringt alles, dessen Name mit einem Punkt beginnt, z. B. App-Daten in .hermes oder .Trash.',
+    'Encoding': 'Kodierung',
+    'Output': 'Ausgabe',
     'Appended to the name of each result, e.g. clip{postfix}.mp4.':
         'Wird an den Namen jedes Ergebnisses angehängt, z. B. clip{postfix}.mp4.',
     'Source videos whose name ends with one of these (separated by commas) are skipped, e.g. results of earlier runs. The result postfix is always skipped.':

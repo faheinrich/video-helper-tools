@@ -621,6 +621,23 @@ class ArchiverGUI(QWidget):
         photos.addWidget(photos_hint)
         layout.addLayout(photos)
 
+        # Search: which videos of the source folder are listed at all.
+        search = QVBoxLayout()
+        search.setSpacing(6)
+        search.addWidget(caption(tr("Search")))
+        self.cb_skip_hidden = QCheckBox(tr("Ignore hidden files/folders"))
+        self.cb_skip_hidden.setToolTip(tr("Skips everything whose name starts with a dot, e.g. app data in .hermes or .Trash."))
+        self.cb_skip_hidden.setChecked(True)
+        self.cb_skip_hidden.toggled.connect(self.schedule_scan)
+        search.addWidget(self.cb_skip_hidden)
+        self.txt_excludes = QLineEdit(DEFAULT_EXCLUDES)
+        self.txt_excludes.setToolTip(tr("Source videos whose name ends with one of these (separated by commas) are skipped, "
+                                        "e.g. results of earlier runs. The result postfix is always skipped."))
+        self.txt_excludes.textChanged.connect(self.schedule_scan)
+        search.addWidget(QLabel(tr("Skip names ending in")))
+        search.addWidget(self.txt_excludes)
+        layout.addLayout(search)
+
         # Advanced
         self.btn_advanced = QToolButton()
         self.btn_advanced.setText(tr("Advanced"))
@@ -676,19 +693,18 @@ class ArchiverGUI(QWidget):
         self.cb_low_priority.setChecked(True)
         self.cb_dry_run = QCheckBox(tr("Test run (first second only)"))
         self.cb_dry_run.setToolTip(tr("Compresses only the first second of each video to check the settings quickly."))
-        for box in (self.cb_copy_aac, self.cb_flatten, self.cb_overwrite, self.cb_low_priority, self.cb_dry_run):
+        adv.addWidget(caption(tr("Encoding")))
+        for box in (self.cb_copy_aac, self.cb_low_priority, self.cb_dry_run):
+            adv.addWidget(box)
+        adv.addWidget(caption(tr("Output")))
+        for box in (self.cb_flatten, self.cb_overwrite):
             adv.addWidget(box)
 
-        adv.addWidget(caption(tr("Names")))
         self.txt_postfix = QLineEdit(DEFAULT_POSTFIX)
         self.txt_postfix.setToolTip(tr("Appended to the name of each result, e.g. clip{postfix}.mp4.", postfix=DEFAULT_POSTFIX))
-        self.txt_excludes = QLineEdit(DEFAULT_EXCLUDES)
-        self.txt_excludes.setToolTip(tr("Source videos whose name ends with one of these (separated by commas) are skipped, "
-                                        "e.g. results of earlier runs. The result postfix is always skipped."))
-        for label, edit in ((tr("Result postfix"), self.txt_postfix), (tr("Skip names ending in"), self.txt_excludes)):
-            adv.addWidget(QLabel(label))
-            adv.addWidget(edit)
-            edit.textChanged.connect(self.schedule_scan)
+        self.txt_postfix.textChanged.connect(self.schedule_scan)
+        adv.addWidget(QLabel(tr("Result postfix")))
+        adv.addWidget(self.txt_postfix)
         self.advanced.hide()
         self.btn_advanced.toggled.connect(self.advanced.setVisible)
         self.btn_advanced.toggled.connect(lambda on: self.btn_advanced.setArrowType(Qt.DownArrow if on else Qt.RightArrow))
@@ -803,7 +819,8 @@ class ArchiverGUI(QWidget):
         reason = self.run_blocked_reason()
         self.btn_run.setEnabled(not reason)
         self.btn_run.setToolTip(reason)
-        for widget in (self.spin_jobs, self.txt_src, self.txt_dst, self.cb_flatten, self.txt_postfix, self.txt_excludes):
+        for widget in (self.spin_jobs, self.txt_src, self.txt_dst, self.cb_flatten, self.txt_postfix, self.txt_excludes,
+                       self.cb_skip_hidden):
             widget.setEnabled(not self.is_archiving())
 
     def request_summary(self):
@@ -847,11 +864,13 @@ class ArchiverGUI(QWidget):
         if self.selection is not None:
             self.scan_worker = UnifiedScanWorker(
                 self.scan_root(), self.dst_dir() if self.txt_dst.text().strip() else None, self.cb_flatten.isChecked(),
-                postfix=self.postfix(), excludes=parse_excludes(self.txt_excludes.text()), files=self.selection)
+                postfix=self.postfix(), excludes=parse_excludes(self.txt_excludes.text()), files=self.selection,
+                skip_hidden=self.cb_skip_hidden.isChecked())
         else:
             self.scan_worker = UnifiedScanWorker(
                 self.src_dir(), self.dst_dir(), self.cb_flatten.isChecked(),
-                postfix=self.postfix(), excludes=parse_excludes(self.txt_excludes.text()))
+                postfix=self.postfix(), excludes=parse_excludes(self.txt_excludes.text()),
+                skip_hidden=self.cb_skip_hidden.isChecked())
         self.scan_worker.scan_finished.connect(self.on_unified_scan_finished)
         # The result arrives while the thread is still ending, so is_scanning() is still true in that handler.
         self.scan_worker.finished.connect(self.update_run_enabled)
@@ -1456,6 +1475,7 @@ class ArchiverGUI(QWidget):
             'flatten': self.cb_flatten.isChecked(),
             'postfix': self.txt_postfix.text(),
             'excludes': self.txt_excludes.text(),
+            'skip_hidden': self.cb_skip_hidden.isChecked(),
             'overwrite': self.cb_overwrite.isChecked(),
             'low_priority': self.cb_low_priority.isChecked(),
             'keep_awake': self.cb_keep_awake.isChecked(),
@@ -1502,6 +1522,7 @@ class ArchiverGUI(QWidget):
         if 'flatten' in defaults: self.cb_flatten.setChecked(defaults['flatten'])
         if 'postfix' in defaults: self.txt_postfix.setText(defaults['postfix'])
         if 'excludes' in defaults: self.txt_excludes.setText(defaults['excludes'])
+        if 'skip_hidden' in defaults: self.cb_skip_hidden.setChecked(defaults['skip_hidden'])
         if 'overwrite' in defaults: self.cb_overwrite.setChecked(defaults['overwrite'])
         if 'low_priority' in defaults: self.cb_low_priority.setChecked(defaults['low_priority'])
         if 'keep_awake' in defaults: self.cb_keep_awake.setChecked(defaults['keep_awake'])

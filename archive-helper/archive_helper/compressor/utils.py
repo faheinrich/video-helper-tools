@@ -503,3 +503,31 @@ class EncodeSpeeds:
             return None
         known_jobs, entry = min(others, key=lambda item: item[0])
         return video_seconds * entry["ratio"] / known_jobs, False
+
+
+# ffmpeg's blockdetect score. Measured: original and x265 CRF 20 about 1.1-1.3, VideoToolbox 8 bit with visible blocks
+# 2.4-10 (same clips). The original counts too, so a source that is blocky itself raises no warning.
+BLOCK_WARN_SCORE = 2.0
+BLOCK_WARN_RATIO = 1.5
+BLOCK_SAMPLE_SECONDS = 2
+
+
+def is_blocky(result, original=None):
+    return result >= BLOCK_WARN_SCORE and (original is None or result >= original * BLOCK_WARN_RATIO)
+
+
+def block_sample_starts(duration):
+    """Where to measure: three short parts, or the whole video if it is short."""
+    if not duration or duration <= BLOCK_SAMPLE_SECONDS * 3:
+        return [0]
+    return [round(duration * part, 2) for part in (0.15, 0.5, 0.85)]
+
+
+def blockiness_command(path, start):
+    return ["ffmpeg", "-hide_banner", "-threads", "2", "-ss", str(start), "-t", str(BLOCK_SAMPLE_SECONDS), "-i", str(path),
+            "-an", "-vf", "format=yuv420p,blockdetect", "-f", "null", "-"]
+
+
+def parse_blockiness(output):
+    match = re.search(r"block mean:\s*([0-9.]+)", output)
+    return float(match.group(1)) if match else None

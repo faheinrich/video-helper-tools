@@ -6,6 +6,12 @@ All notable changes to the two apps and the shared core. The format follows
 
 ## [Unreleased]
 
+### Archive Helper
+- New: after a video is finished, its result is checked for visible blocks in flat areas (ffmpeg's `blockdetect` on three
+  short parts, compared with the original, at low priority). Results that look worse show "⚠ Blöcke?" in the status with
+  the scores in the tooltip, and the end of the run names how many there are.
+- Fixed: dark mode was hard to read on macOS (glaring summary card, invisible captions and placeholders, dim status colours).
+
 ### Development
 - Tests: the shared Qt test application cleans up its windows and threads when the session ends. Without it the Python
   process crashed on exit (exit code 139) on macOS when coverage was on, after all tests had passed, and failed the CI job.

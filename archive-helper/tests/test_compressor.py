@@ -1192,3 +1192,72 @@ def test_no_confirmation_when_nothing_replaces_an_original(qapp, make_gui, tmp_p
     assert gui.is_archiving()
     gui.stop_archiving()
     wait_idle(qapp, gui)
+
+
+@pytest.mark.parametrize("result, original, warn", [
+    (3.5, 1.3, True),    # VideoToolbox 65 on a hazy sky
+    (1.27, 1.30, False),  # x265 CRF 20 on the same clip
+    (3.5, 3.0, False),   # the original is that blocky itself
+    (2.5, None, True),   # original replaced: nothing to compare with
+    (1.5, None, False),
+])
+def test_block_warning_threshold(result, original, warn):
+    from archive_helper.compressor.utils import is_blocky
+
+    assert is_blocky(result, original) is warn
+
+
+def test_block_samples_cover_long_videos_and_stay_inside_short_ones():
+    from archive_helper.compressor.utils import block_sample_starts
+
+    assert block_sample_starts(100) == [15.0, 50.0, 85.0]
+    assert block_sample_starts(3) == [0]
+    assert block_sample_starts(None) == [0]
+
+
+@requires_ffmpeg
+def test_block_worker_measures_the_real_result_and_original(qapp):
+    from PySide6.QtCore import Qt
+    from archive_helper.compressor.workers import BlockCheckWorker
+
+    worker = BlockCheckWorker()
+    found = []
+    worker.checked.connect(lambda path, check: found.append((path, check)), Qt.DirectConnection)
+    worker.add(EXAMPLE_VIDEOS[0], EXAMPLE_VIDEOS[1])
+    for _ in range(600):
+        if found:
+            break
+        time.sleep(0.05)
+    worker.stop()
+    worker.wait()
+    assert found[0][0] == str(EXAMPLE_VIDEOS[0])
+    result, original = found[0][1]
+    assert result > 0 and original > 0
+
+
+def test_blocky_result_is_flagged_in_status_tooltip_and_survives_a_rescan(qapp, make_gui, tmp_path):
+    from PySide6.QtCore import Qt
+    from archive_helper.compressor.model import COL_STATUS, VideoRow
+
+    src, dst = tmp_path / "clip.mov", tmp_path / "out" / "clip_archived.mp4"
+    make_named_videos(tmp_path, "clip.mov")
+    make_named_videos(dst.parent, dst.name)
+    gui = make_gui()
+    gui.model.reset([VideoRow(src=src, dst=dst, size=1, out_size=1, status="done", root=tmp_path)])
+    gui.on_block_checked(str(src), (3.5, 1.3))
+    index = gui.model.index(0, COL_STATUS)
+    assert "Blöcke?" in index.data()
+    assert "3.5" in index.data(Qt.ToolTipRole) and "1.3" in index.data(Qt.ToolTipRole)
+
+    gui.on_unified_scan_finished([{'path': src, 'dst_path': dst, 'size': 1, 'exists_compressed': True, 'comp_size': 1}])
+    assert gui.model.rows[0].blocky
+
+    gui.block_checks.clear()
+    gui.on_block_checked(str(src), (1.2, 1.3))
+    assert "Blöcke?" not in gui.model.index(0, COL_STATUS).data()
+
+
+def test_shared_style_avoids_palette_roles_that_are_broken_in_macos_dark_mode():
+    from video_helper_core.style import STYLE
+
+    assert "alternate-base" not in STYLE and "placeholder-text)" not in STYLE

@@ -160,7 +160,7 @@ class LandingPage(QWidget):
 
         subtitle = QLabel(tr("Choose a tool to start"))
         subtitle.setAlignment(Qt.AlignCenter)
-        subtitle.setStyleSheet("font-size: 14px; color: #666;")
+        subtitle.setStyleSheet("font-size: 14px; color: #858b95;")
         layout.addWidget(subtitle)
 
         btn_row = QHBoxLayout()

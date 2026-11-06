@@ -13,7 +13,7 @@ from PySide6.QtGui import QImage
 
 from video_helper_core.i18n import tr
 from .utils import (
-    DEFAULT_POSTFIX, EXIFTOOL_CONFIG, DurationCache, partial_path, path_key, same_file, copy_file_times, format_size, generate_thumbnail, get_thumbnail_path, get_video_info, is_photos_compatible,
+    DEFAULT_POSTFIX, EXIFTOOL_CONFIG, block_sample_starts, blockiness_command, is_blocky, parse_blockiness, DurationCache, partial_path, path_key, same_file, copy_file_times, format_size, generate_thumbnail, get_thumbnail_path, get_video_info, is_photos_compatible,
     get_audio_streams, get_hdr_color, parse_ffmpeg_time, read_compression_settings, settings_tag_argument,
 )
 
@@ -713,6 +713,73 @@ class DurationProbeWorker(QThread):
                 for future in futures:
                     future.cancel()
         cache.save()
+
+
+class BlockCheckWorker(QThread):
+    """Measures finished results one after the other, at low priority, while the run goes on."""
+    checked = Signal(str, object)  # source path, (result score, original score)
+
+    def __init__(self):
+        super().__init__()
+        self.condition = threading.Condition()
+        self.waiting = []
+        self.process = None
+        self.stopping = False
+        self.finished.connect(self.start_if_waiting)  # added just as the thread was ending
+
+    def start_if_waiting(self):
+        if self.waiting and not self.stopping:
+            self.start()
+
+    def add(self, src, dst, same_file=False):
+        """same_file: the result replaced the original, so there is nothing to compare it with."""
+        with self.condition:
+            self.waiting.append((src, dst, same_file))
+        if not self.isRunning():
+            self.start()
+
+    def stop(self):
+        with self.condition:
+            self.stopping = True
+            if self.process is not None:
+                self.process.kill()
+
+    def measure(self, path, start):
+        low_priority = {"creationflags": BELOW_NORMAL_PRIORITY_CLASS} if sys.platform == "win32" else \
+            {"preexec_fn": lambda: os.nice(LOW_PRIORITY_NICE)}
+        with self.condition:
+            if self.stopping:
+                return None
+            self.process = subprocess.Popen(blockiness_command(path, start), stdout=subprocess.DEVNULL,
+                                            stderr=subprocess.PIPE, text=True, errors="replace", **low_priority)
+        _, output = self.process.communicate()
+        return parse_blockiness(output)
+
+    def check(self, src, dst, same_file):
+        """The part where the result looks worst compared with the original."""
+        worst = None
+        for start in block_sample_starts(get_video_info(dst)[0]):
+            result = self.measure(dst, start)
+            if result is None:
+                continue
+            original = None if same_file else self.measure(src, start)
+            if worst is None or is_blocky(result, original) and not is_blocky(*worst) or result > worst[0]:
+                worst = (result, original)
+        return worst
+
+    def run(self):
+        while True:
+            with self.condition:
+                # Ends when there is nothing to do: an idle thread would abort the app if its owner goes away.
+                if self.stopping or not self.waiting:
+                    return
+                src, dst, same_file = self.waiting.pop(0)
+            try:
+                result = self.check(src, dst, same_file)
+            except OSError:  # the check is a bonus; it never gets in the way of the run
+                result = None
+            if result is not None and not self.stopping:
+                self.checked.emit(str(src), result)
 
 
 class ResultSettingsWorker(QThread):

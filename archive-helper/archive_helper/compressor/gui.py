@@ -29,7 +29,7 @@ from .utils import (
 from .lab import CompressionLabDialog
 from .options import FRAME_RATES, QUALITY_PRESETS, RENDERERS, RESOLUTIONS, X265_PRESETS
 from .widgets import CompareVideoDialog, DropLineEdit, DropOverlay, dropped_paths
-from .workers import ArchiveWorker, DurationProbeWorker, ResultSettingsWorker, ThumbnailRunnable, UnifiedScanWorker
+from .workers import ArchiveWorker, BlockCheckWorker, DurationProbeWorker, ResultSettingsWorker, ThumbnailRunnable, UnifiedScanWorker
 
 STATUS_FILTERS = [
     ("all", None), ("planned", {"planned"}), ("running", {"running"}),
@@ -134,6 +134,8 @@ class ArchiverGUI(QWidget):
         self.scan_worker = None
         self.duration_worker = None
         self.settings_worker = None
+        self.block_worker = None
+        self.block_checks = {}  # source path -> result of the check; rows are rebuilt by every scan
         self.log_dialog = None
         self.video_data_list = []
         self.scan_items = []
@@ -785,7 +787,7 @@ class ArchiverGUI(QWidget):
     def shutdown(self):
         self.scan_timer.stop()
         self.keep_awake.stop()
-        for worker in (self.worker, self.scan_worker, self.duration_worker, self.settings_worker):
+        for worker in (self.worker, self.scan_worker, self.duration_worker, self.settings_worker, self.block_worker):
             if worker is not None and worker.isRunning():
                 if hasattr(worker, "stop"):
                     worker.stop()
@@ -889,6 +891,7 @@ class ArchiverGUI(QWidget):
                 status="exists" if exists else "planned",
                 out_size=item['comp_size'] if exists else None,
                 conflict=bool(item.get('conflict')),
+                block_check=self.block_checks.get(str(item['path'])) if exists else None,
             ))
         counts = {}
         for row in rows:
@@ -1089,6 +1092,25 @@ class ArchiverGUI(QWidget):
             values["status"] = "done"
         self.model.update(path, **values)
         self.update_detail_bar()
+        if status == "finished":
+            self.block_checks.pop(path, None)
+            self.model.update(path, block_check=None)
+            if data and data.get('diff_size'):  # not when the original was kept: nothing new to look at
+                self.check_blocks(path)
+
+    def check_blocks(self, path):
+        row = self.model.row_for(path)
+        if row is None or not row.dst.exists():
+            return
+        if self.block_worker is None:
+            self.block_worker = BlockCheckWorker()
+            self.block_worker.checked.connect(self.on_block_checked)
+        self.block_worker.add(row.src, row.dst, same_file=row.src == row.dst)
+
+    @Slot(str, object)
+    def on_block_checked(self, path, check):
+        self.block_checks[path] = check
+        self.model.update(path, block_check=check)
 
     def record_speed(self, path):
         """Remembers how long this video took, for the time estimate of the next folder."""
@@ -1271,6 +1293,9 @@ class ArchiverGUI(QWidget):
                          if counts.get("planned") else tr("Finished: {done} videos processed.", done=len(finished)))
             if errors:
                 parts.append(tr("{count} with errors.", count=errors))
+            blocky = sum(r.blocky for r in run_rows)
+            if blocky:
+                parts.append(tr("⚠ {count} may show blocks.", count=blocky))
         queue = self.queue_items()
         conflicts = sum(1 for item in queue if item.get('conflict'))
         if conflicts:

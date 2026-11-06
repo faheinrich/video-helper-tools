@@ -7,7 +7,7 @@ from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPalette
 from PySide6.QtWidgets import QApplication, QStyle, QStyledItemDelegate
 
 from video_helper_core.i18n import tr
-from .utils import format_size
+from .utils import format_size, is_blocky
 
 LOG_LIMIT = 300
 
@@ -16,15 +16,16 @@ STATUS_ORDER = ["running", "error", "planned", "done", "skipped", "exists"]
 
 # Semantic colours; the pill background is the same hue at low alpha so it works in light and dark mode.
 STATUS_COLORS = {
-    "planned": QColor(110, 118, 134),
-    "running": QColor(58, 99, 216),
-    "done": QColor(35, 135, 90),
-    "exists": QColor(35, 135, 90),
-    "skipped": QColor(110, 118, 134),
-    "error": QColor(198, 63, 53),
+    "planned": QColor(133, 139, 149),
+    "running": QColor(82, 130, 245),
+    "done": QColor(46, 158, 108),
+    "exists": QColor(46, 158, 108),
+    "skipped": QColor(133, 139, 149),
+    "error": QColor(226, 84, 72),
 }
 
-CONFLICT_COLOR = QColor(198, 63, 53)   # red: the result would replace the original
+WARNING_COLOR = QColor(201, 130, 31)   # orange: finished, but worth a look
+CONFLICT_COLOR = QColor(226, 84, 72)   # red: the result would replace the original
 
 COL_FILE, COL_DURATION, COL_SIZE, COL_RESULT, COL_SETTINGS, COL_STATUS = range(6)
 
@@ -33,6 +34,8 @@ def status_label(row):
     if row.conflict and row.status in ("planned", "error"):
         return tr("⚠ Source = target!")
     label = _status_label(row)
+    if row.blocky:
+        label += " · " + tr("⚠ blocks?")
     return f"⚠ {tr('Duplicate target name')} · {label}" if row.duplicate else label
 
 
@@ -90,6 +93,7 @@ class VideoRow:
     duplicate: bool = False  # another source file maps to the same target name
     conflict: bool = False  # the target is a source video: the result would replace the original
     moved_up: bool = False  # processed before the table order ("Process next")
+    block_check: tuple | None = None  # blockiness of (result, original) where it looked worst; original may be None
     settings: dict | None = None  # stored in the result file; None for results made before this existed
     root: Path | None = None
     log: list = field(default_factory=list)
@@ -101,6 +105,10 @@ class VideoRow:
         except (TypeError, ValueError):  # no root, or the file lies outside it
             return ""
         return "" if parent == Path(".") else parent.as_posix()
+
+    @property
+    def blocky(self):
+        return self.block_check is not None and is_blocky(*self.block_check)
 
     @property
     def has_result(self):
@@ -217,12 +225,17 @@ class VideoTableModel(QAbstractTableModel):
         if role == Qt.TextAlignmentRole and col in (COL_DURATION, COL_SIZE, COL_RESULT):
             return int(Qt.AlignRight | Qt.AlignVCenter)
         if role == Qt.ForegroundRole and col == COL_RESULT and row.ratio is not None and row.ratio > 1:
-            return QColor(183, 112, 26)
+            return WARNING_COLOR
         if role == Qt.ToolTipRole:
             if col == COL_FILE:
                 return str(row.src)
             if col == COL_SETTINGS and row.out_size is not None:
                 return describe_settings(row.settings, detailed=True) or tr("Made before settings were recorded.")
+            if col == COL_STATUS and row.blocky:
+                result, original = row.block_check
+                return tr("Flat areas may show visible blocks: score {result:.1f}, original {original}. Compare it with "
+                          "the original; if it shows, the CPU encoder (libx265) or a higher quality helps.",
+                          result=result, original="–" if original is None else f"{original:.1f}")
             if row.note:
                 return row.note
         return None
@@ -342,6 +355,8 @@ class StatusDelegate(QStyledItemDelegate):
         painter.save()
         painter.setRenderHint(QPainter.Antialiasing)
         color = CONFLICT_COLOR if row.conflict and row.status in ("planned", "error") else STATUS_COLORS[row.status]
+        if row.blocky:
+            color = WARNING_COLOR
         font = QFont(option.font)
         font.setPointSizeF(option.font.pointSizeF() * 0.92)
         font.setWeight(QFont.DemiBold)

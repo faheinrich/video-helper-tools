@@ -1052,10 +1052,11 @@ def test_savings_are_written_as_smaller_or_larger_not_as_a_negative_percentage(q
     gui.refresh_summary()
     text = gui.summary_values["saving"][1].text()
     assert "75 % kleiner" in text and "-" not in text and "+" not in text
+    assert text.endswith("→ 250.00 B")  # the size afterwards, not the amount saved
 
     gui.model.reset([VideoRow(src=root / "a.mp4", dst=root / "a_x.mp4", size=1000, out_size=1500, status="done", root=root)])
     gui.refresh_summary()
-    assert "50 % größer" in gui.summary_values["saving"][1].text()
+    assert "50 % größer → 1.46 KB" in gui.summary_values["saving"][1].text()
 
 
 def test_long_paths_keep_their_start_and_last_folder_when_not_edited(qapp):

@@ -1177,7 +1177,7 @@ class ArchiverGUI(QWidget):
             prefix = "≈ " if estimate else ""
             percent = abs(saved) / total * 100
             wording = tr("{percent:.0f} % smaller → {size}") if saved >= 0 else tr("{percent:.0f} % larger → {size}")
-            self.set_summary("saving", prefix + wording.format(percent=percent, size=format_size(abs(saved))),
+            self.set_summary("saving", prefix + wording.format(percent=percent, size=format_size(total - saved)),
                              tone="good" if saved >= 0 else "warn",
                              tooltip=tr("Based on the videos already compressed (ratio {ratio:.0%}).", ratio=ratio))
 

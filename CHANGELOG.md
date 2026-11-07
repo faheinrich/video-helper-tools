@@ -10,6 +10,10 @@ All notable changes to the two apps and the shared core. The format follows
 - New: after a video is finished, its result is checked for visible blocks in flat areas (ffmpeg's `blockdetect` on three
   short parts, compared with the original, at low priority). Results that look worse show "⚠ Blöcke?" in the status with
   the scores in the tooltip, and the end of the run names how many there are.
+- New: a checkbox "Ignore hidden files/folders" (on by default) skips everything whose name starts with a dot, and
+  hidden folders such as `.hermes` are not even entered. macOS `._` metadata files are always skipped.
+- Changed: the settings drawer groups its options into Search, Encoding and Output, and the search options are always visible.
+- Fixed: the number after the savings arrow is now the total size after compression; it showed the amount saved.
 - Fixed: dark mode was hard to read on macOS (glaring summary card, invisible captions and placeholders, dim status colours).
 
 ### Development

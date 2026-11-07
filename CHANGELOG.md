@@ -6,6 +6,15 @@ All notable changes to the two apps and the shared core. The format follows
 
 ## [Unreleased]
 
+### Analysis Helper
+- Fixed: dark mode on macOS: the transcriber's panels glared bright grey, and its section titles and the sync tool's waveform
+  captions were hard to read.
+- The update check fix of 0.0.4 and the shared dark mode fixes reach this app with its next release.
+
+## [0.0.4] - 2026-11-07
+
+Archive Helper `archive-v0.0.4`. Analysis Helper is not released this time and stays at 0.0.2.
+
 ### Archive Helper
 - New: after a video is finished, its result is checked for visible blocks in flat areas (ffmpeg's `blockdetect` on three
   short parts, compared with the original, at low priority). Results that look worse show "⚠ Blöcke?" in the status with
@@ -22,20 +31,14 @@ All notable changes to the two apps and the shared core. The format follows
 - Fixed: with FFmpeg 8 or newer the compression lab showed no frames for HDR videos (the colour matrix name `bt2020nc` is no
   longer accepted by the scale filter; `bt2020` works).
 - Fixed: the name of a selected video was white on a pale selection, and so unreadable, when the window was not in front.
-
-### Analysis Helper
-- Fixed: dark mode on macOS: the transcriber's panels glared bright grey, and its section titles and the sync tool's waveform
-  captions were hard to read.
+- Fixed (probably): the update check could fail silently on a Mac where the bundled Python did not find the system's
+  certificate list. The check now uses the certificates shipped with the app (certifi), records any failure, and the
+  About dialog says how the check went ("this is the newest version (latest release: …)", "failed: …", "switched off").
 
 ### Development
 - README: screenshot of Archive Helper.
 - Tests: the shared Qt test application cleans up its windows and threads when the session ends. Without it the Python
   process crashed on exit (exit code 139) on macOS when coverage was on, after all tests had passed, and failed the CI job.
-
-### Both apps
-- Fixed (probably): the update check could fail silently on a Mac where the bundled Python did not find the system's
-  certificate list. The check now uses the certificates shipped with the app (certifi), records any failure, and the
-  About dialog says how the check went ("this is the newest version (latest release: …)", "failed: …", "switched off").
 
 ## [0.0.3] - 2026-10-21
 

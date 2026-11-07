@@ -9,7 +9,7 @@ import sys
 
 def make_hdr_gradient_clip(path, seconds=6):
     filters = (
-        "[0:v]scale=out_color_matrix=bt2020nc:out_range=tv,format=yuv420p10le[g];"
+        "[0:v]scale=out_color_matrix=bt2020:out_range=tv,format=yuv420p10le[g];"
         "[1:v][2:v]vstack[r];[g][r]vstack,setparams=colorspace=bt2020nc:color_primaries=bt2020:color_trc=arib-std-b67:range=tv"
     )
     subprocess.run(

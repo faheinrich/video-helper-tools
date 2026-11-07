@@ -264,8 +264,8 @@ class WaveformWidget(QWidget):
 
 
 TRANSCRIBER_STYLE = """
-QGroupBox { background: palette(alternate-base); border: 1px solid palette(mid); border-radius: 8px; margin-top: 18px; padding: 10px 8px 8px 8px; font-weight: 600; }
-QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 10px; padding: 0 4px; color: palette(placeholder-text); }
+QGroupBox { background: rgba(128, 128, 128, 0.14); border: 1px solid rgba(128, 128, 128, 0.35); border-radius: 8px; margin-top: 18px; padding: 10px 8px 8px 8px; font-weight: 600; }
+QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 10px; padding: 0 4px; color: #858b95; }
 QLabel#preview { background: black; color: white; border-radius: 8px; }
 QScrollArea { border: none; }
 """

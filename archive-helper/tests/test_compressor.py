@@ -394,6 +394,27 @@ def test_larger_output_keeps_photos_compatible_original(qapp, make_gui, tmp_path
 
 @requires_ffmpeg
 @requires_exiftool
+def test_larger_output_next_to_the_original_makes_no_second_copy(qapp, make_gui, tmp_path):
+    src = tmp_path / "src"
+    src.mkdir()
+    make_low_bitrate_clip(src / "clip.mp4", ["-c:v", "libx264", "-b:v", "50k"])
+
+    gui = run_archive(qapp, make_gui(), src, src, crf=0)
+
+    assert sorted(p.name for p in src.iterdir()) == ["clip.mp4", "clip_archived.mp4"]
+    assert "Original daneben ist kleiner" in "\n".join(gui.model.rows[0].log)
+
+
+def test_source_copies_are_skipped_by_default(qapp, make_gui, tmp_path):
+    src, dst = tmp_path / "src", tmp_path / "dst"
+    make_named_videos(src, "clip.mp4", "clip_source.mp4")
+    gui = make_gui()
+    scan(qapp, gui, src, dst)
+    assert [row.src.name for row in gui.model.rows] == ["clip.mp4"]
+
+
+@requires_ffmpeg
+@requires_exiftool
 def test_larger_output_does_not_copy_incompatible_original(qapp, make_gui, tmp_path):
     from archive_helper.compressor.utils import is_photos_compatible
 

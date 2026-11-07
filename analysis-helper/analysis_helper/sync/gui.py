@@ -20,7 +20,7 @@ from analysis_helper.sync.video_synch import extract_audio_tracks, calculate_shi
 
 SYNC_STYLE = """
 QFrame#videoCard { background: black; border-radius: 8px; }
-QLabel#waveform { background: palette(base); border: 1px solid palette(mid); border-radius: 8px; color: palette(placeholder-text); }
+QLabel#waveform { background: palette(base); border: 1px solid palette(mid); border-radius: 8px; color: #858b95; }
 QPushButton[role="segment"]:first-of-type { border-top-left-radius: 6px; border-bottom-left-radius: 6px; }
 """
 

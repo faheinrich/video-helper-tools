@@ -14,9 +14,21 @@ All notable changes to the two apps and the shared core. The format follows
   hidden folders such as `.hermes` are not even entered. macOS `._` metadata files are always skipped.
 - Changed: the settings drawer groups its options into Search, Encoding and Output, and the search options are always visible.
 - Fixed: the number after the savings arrow is now the total size after compression; it showed the amount saved.
-- Fixed: dark mode was hard to read on macOS (glaring summary card, invisible captions and placeholders, dim status colours).
+- Fixed: dark mode was hard to read on macOS (glaring summary card, invisible captions and placeholders, dim status colours,
+  an unavailable Start button that looked like plain text, nearly invisible empty thumbnails).
+- Changed: a result that is not smaller no longer gets a `_source` copy of the original when it lies in the same folder as
+  the original, and `_source` is now one of the name endings skipped by default, so these copies are not compressed
+  again. If you saved your own defaults, add `_source` to the list yourself. Existing `_source` files are left alone.
+- Fixed: with FFmpeg 8 or newer the compression lab showed no frames for HDR videos (the colour matrix name `bt2020nc` is no
+  longer accepted by the scale filter; `bt2020` works).
+- Fixed: the name of a selected video was white on a pale selection, and so unreadable, when the window was not in front.
+
+### Analysis Helper
+- Fixed: dark mode on macOS: the transcriber's panels glared bright grey, and its section titles and the sync tool's waveform
+  captions were hard to read.
 
 ### Development
+- README: screenshot of Archive Helper.
 - Tests: the shared Qt test application cleans up its windows and threads when the session ends. Without it the Python
   process crashed on exit (exit code 139) on macOS when coverage was on, after all tests had passed, and failed the CI job.
 

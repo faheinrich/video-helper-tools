@@ -16,7 +16,7 @@ QLabel[role="value"][tone="warn"] { color: #c9821f; }
 QLabel[role="hint"] { color: #858b95; font-size: 12px; }
 QPushButton#runButton { background: palette(highlight); color: palette(highlighted-text); border: none; border-radius: 6px; padding: 6px 18px; font-weight: 600; }
 QPushButton#runButton[mode="stop"] { background: #c63f35; color: white; }
-QPushButton#runButton:disabled { background: palette(midlight); color: #858b95; }
+QPushButton#runButton:disabled { background: rgba(128, 128, 128, 0.22); color: #858b95; }
 QPushButton[role="chip"] { border: 1px solid palette(mid); border-radius: 12px; padding: 3px 12px; background: transparent; }
 QPushButton[role="chip"]:checked { background: palette(text); color: palette(base); border-color: palette(text); }
 QPushButton[role="segment"] { border: 1px solid palette(mid); padding: 5px 8px; background: palette(base); }

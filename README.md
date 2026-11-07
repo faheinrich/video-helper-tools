@@ -13,6 +13,8 @@ Two desktop apps for working with videos, built from one repository:
 | **Archive Helper** | compress videos for the archive (metadata kept), back up folders with rsync | [archive-helper](archive-helper) |
 | **Analysis Helper** | synchronise recordings by audio, transcribe speech with Whisper to ELAN | [analysis-helper](analysis-helper) |
 
+![Archive Helper with the test videos from archive-helper/example_resources after a finished run](docs/archive-helper.png)
+
 They are separate apps because their dependencies differ a lot: the archive app needs only Qt, FFmpeg and ExifTool,
 the analysis app also ships PyTorch, OpenCV and friends. Both use the shared package in [core](core)
 (window shell, translations, styles, app data paths).

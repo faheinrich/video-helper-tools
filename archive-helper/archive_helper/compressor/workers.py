@@ -493,7 +493,9 @@ class ArchiveWorker(QThread):
         if dst_size >= src_size:
             # Only keep the smaller original if it imports into Apple Photos; otherwise
             # the (always hvc1/AAC) compressed file stays the archive copy.
-            if is_photos_compatible(src_path):
+            if dst_path.parent.resolve() == src_path.parent.resolve():
+                result_msg += tr(" ⚠️ (the original next to it is smaller)")   # a copy would only take up space
+            elif is_photos_compatible(src_path):
                 backup_path = dst_path.with_name(f"{src_path.stem}_source{src_path.suffix}")
                 shutil.copy2(src_path, backup_path)
                 result_msg += tr(" ⚠️ (original copied because it is smaller)")

@@ -313,11 +313,13 @@ class FileDelegate(QStyledItemDelegate):
             painter.setClipping(False)
         else:
             painter.setPen(Qt.NoPen)
-            painter.setBrush(palette.color(QPalette.Mid))
+            painter.setBrush(QColor(128, 128, 128, 90))   # the palette's Mid nearly vanishes on dark rows
             painter.drawRoundedRect(thumb_rect, 4, 4)
 
         selected = bool(option.state & QStyle.State_Selected)
-        text_color = palette.color(QPalette.HighlightedText if selected else QPalette.Text)
+        # the group matters: the selection of an inactive window is pale, and its text colour is dark instead of white
+        group = QPalette.Active if option.state & QStyle.State_Active else QPalette.Inactive
+        text_color = palette.color(group, QPalette.HighlightedText if selected else QPalette.Text)
         text_left = int(thumb_rect.right()) + 10
         name_font = QFont(option.font)
         name_font.setWeight(QFont.DemiBold)

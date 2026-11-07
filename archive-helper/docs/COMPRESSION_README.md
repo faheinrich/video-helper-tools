@@ -14,7 +14,7 @@ Das Tool "Compress & Archive" der Video Helper Tools komprimiert ganze Ordner vo
 - **Hardware-Beschleunigung**: Apple VideoToolbox (Mac-GPU) oder hochwertiges CPU-Encoding mit libx265 (CRF + Preset).
 - **Auflösungs- und Framerate-Limits**, z.B. 4K/60fps auf 1080p/30fps.
 - **Apple-Fotos-kompatibel**: Ausgaben werden mit dem Codec-Tag `hvc1` geschrieben und lassen sich so in Apple Fotos importieren.
-- **Sicherheitsnetz**: Wird die komprimierte Datei größer als das Original, wird zusätzlich das Original als `*_source` daneben kopiert. Bereits vorhandene Ziele (gleiche Dauer) werden übersprungen, außer "Überschreiben" ist aktiv.
+- **Sicherheitsnetz**: Wird die komprimierte Datei größer als das Original, wird zusätzlich das Original als `*_source` daneben kopiert, außer das Ergebnis liegt ohnehin im selben Ordner wie das Original. Dateien mit `_source` im Namen werden beim Scan standardmäßig übersprungen. Bereits vorhandene Ziele (gleiche Dauer) werden übersprungen, außer "Überschreiben" ist aktiv.
 - **Dry-Run**: komprimiert nur die erste Sekunde, um Einstellungen schnell zu testen.
 - Standard-Einstellungen speichern, Log als CSV exportieren, Drag & Drop von Ordnern.
 

@@ -217,8 +217,8 @@ class FrameWorker(QThread):
             if hdr:
                 # No tone mapping (this ffmpeg may lack zscale): the frame keeps the HDR brightness curve, so it looks
                 # a little flat, but the colours are decoded with the right matrix.
-                scale = [f"scale={size[0]}:{size[1]}:flags=bicubic:in_color_matrix=bt2020nc" if size
-                         else "scale=in_color_matrix=bt2020nc"]
+                scale = [f"scale={size[0]}:{size[1]}:flags=bicubic:in_color_matrix=bt2020" if size
+                         else "scale=in_color_matrix=bt2020"]
             if scale:
                 command += ["-vf", ",".join(scale)]
             command += ["-f", "image2pipe", "-vcodec", "png", "-"]

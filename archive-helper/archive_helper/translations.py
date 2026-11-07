@@ -200,6 +200,7 @@ register_german({
     '❌ Error in {name}: FFmpeg exit code {code}': '❌ Fehler bei {name}: FFmpeg-Exitcode {code}',
     ' ⚠️ (metadata could not be copied: {error})': ' ⚠️ (Metadaten konnten nicht kopiert werden: {error})',
     ' ⚠️ (original copied because it is smaller)': ' ⚠️ (Original kopiert, weil es kleiner ist)',
+    ' ⚠️ (the original next to it is smaller)': ' ⚠️ (das Original daneben ist kleiner)',
     ' ⚠️ (original not Apple Photos compatible, kept the compressed version)':
         ' ⚠️ (Original nicht Apple-Fotos-kompatibel, komprimierte Version behalten)',
     '❌ Could not start {name}: {error}': '❌ Konnte {name} nicht starten: {error}',

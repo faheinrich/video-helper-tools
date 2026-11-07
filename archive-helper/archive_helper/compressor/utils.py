@@ -26,7 +26,7 @@ def format_size(size_bytes):
     return f"{prefix}{size_bytes:.2f} {unit_found}"
 
 DEFAULT_POSTFIX = "_archived"
-DEFAULT_EXCLUDES = "_archived, _compressed"
+DEFAULT_EXCLUDES = "_archived, _compressed, _source"
 
 
 def clean_postfix(text):

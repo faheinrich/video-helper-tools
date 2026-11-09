@@ -1,4 +1,5 @@
 """Table model for the compressor queue: one row per source video."""
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -97,6 +98,8 @@ class VideoRow:
     settings: dict | None = None  # stored in the result file; None for results made before this existed
     root: Path | None = None
     log: list = field(default_factory=list)
+    started_at: float | None = None  # time.monotonic() when its compression started, paused time left out
+    took: float | None = None  # seconds its compression took in this session
 
     @property
     def folder(self):
@@ -127,6 +130,7 @@ class VideoTableModel(QAbstractTableModel):
         self.rows = []
         self.by_path = {}
         self.thumbnails = {}
+        self.paused_since = None   # time.monotonic() while the run is paused: running videos do not age
 
     # --- data management -------------------------------------------------
     def reset(self, rows):
@@ -231,6 +235,11 @@ class VideoTableModel(QAbstractTableModel):
                 return str(row.src)
             if col == COL_SETTINGS and row.out_size is not None:
                 return describe_settings(row.settings, detailed=True) or tr("Made before settings were recorded.")
+            if col == COL_STATUS:
+                timing = self.timing_text(row)
+                other = self.data(index, Qt.ToolTipRole + 1000)   # the tooltip without the times
+                return "\n".join(text for text in (timing, other) if text) or None
+        if role == Qt.ToolTipRole + 1000:
             if col == COL_STATUS and row.blocky:
                 result, original = row.block_check
                 return tr("Flat areas may show visible blocks: score {result:.1f}, original {original}. Compare it with "
@@ -239,6 +248,19 @@ class VideoTableModel(QAbstractTableModel):
             if row.note:
                 return row.note
         return None
+
+    def timing_text(self, row):
+        """How long a running video has been compressing and about how long it still needs; how long a finished one took."""
+        if row.status == "running" and row.started_at is not None:
+            elapsed = max(0.0, (self.paused_since or time.monotonic()) - row.started_at)
+            text = tr("Running for {time}", time=format_elapsed(elapsed))
+            if 0 < row.progress < 100:
+                left = elapsed * (100 - row.progress) / row.progress
+                return text + " · " + tr("about {time} left", time=format_elapsed(left))
+            return text + " · " + tr("estimating time left…")
+        if row.status == "done" and row.took is not None:
+            return tr("Took {time}", time=format_elapsed(row.took))
+        return ""
 
 
 class VideoFilterProxy(QSortFilterProxyModel):
@@ -395,3 +417,15 @@ class StatusDelegate(QStyledItemDelegate):
 
     def sizeHint(self, option, index):
         return QSize(190, 44)
+
+
+def format_elapsed(seconds):
+    """Seconds as "42 s", "12 min 5 s" or, from an hour on, "1 h 20 min"."""
+    seconds = int(round(seconds))
+    if seconds < 60:
+        return tr("{seconds} s", seconds=seconds)
+    minutes, seconds = divmod(seconds, 60)
+    if minutes < 60:
+        return tr("{minutes} min {seconds} s", minutes=minutes, seconds=seconds)
+    hours, minutes = divmod(minutes, 60)
+    return tr("{hours} h {minutes} min", hours=hours, minutes=minutes)

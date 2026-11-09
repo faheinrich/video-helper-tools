@@ -16,6 +16,10 @@ register_german({
     'Very high quality, almost visually lossless.': 'Sehr hohe Qualität, fast visuell verlustfrei.',
     '{days} d {hours} h': '{days} T {hours} Std.',
     '{hours} h {minutes} min': '{hours} Std. {minutes} Min.',
+    '{minutes} min {seconds} s': '{minutes} Min. {seconds} Sek.',
+    '{seconds} s': '{seconds} Sek.',
+    'Running for {time}': 'Läuft seit {time}',
+    'Took {time}': 'Hat {time} gedauert',
     'Log: {name}': 'Log: {name}',
     'Type a path, drop a folder here, or choose one.': 'Pfad eintippen, Ordner hierher ziehen oder auswählen.',
     'Choose…': 'Auswählen…',
@@ -162,6 +166,14 @@ register_german({
     "Really delete the compressed version '{name}'?\nThis cannot be undone!":
         "Die komprimierte Version '{name}' wirklich löschen?\nDas kann nicht rückgängig gemacht werden!",
     'result deleted': 'Ergebnis gelöscht',
+    'Really replace {count} originals with their compressed versions?':
+        '{count} Originale wirklich durch ihre komprimierten Versionen ersetzen?',
+    'Really swap original and compressed version of {count} videos?':
+        'Original und komprimierte Version von {count} Videos wirklich tauschen?',
+    "Really delete {count} originals?\nThis cannot be undone!":
+        "{count} Originale wirklich löschen?\nDas kann nicht rückgängig gemacht werden!",
+    "Really delete {count} compressed versions?\nThis cannot be undone!":
+        "{count} komprimierte Versionen wirklich löschen?\nDas kann nicht rückgängig gemacht werden!",
     'Planned · moved up': 'Geplant · vorgezogen',
     'Running · {percent} %': 'Läuft · {percent} %',
     'Already archived': 'Schon archiviert',

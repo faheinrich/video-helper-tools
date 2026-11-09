@@ -160,6 +160,9 @@ class ArchiverGUI(QWidget):
         self.scan_timer.timeout.connect(self.auto_scan)
         self.summary_timer = QTimer(self, singleShot=True, interval=200)
         self.summary_timer.timeout.connect(self.refresh_summary)
+        # Durations arrive in the background, also during a run: the waiting videos are put in order again when they do.
+        self.requeue_timer = QTimer(self, singleShot=True, interval=300)
+        self.requeue_timer.timeout.connect(self.reorder_queue)
         self.speeds = EncodeSpeeds()   # how long encodes took before: the basis of the time estimate
         self.file_started = {}
         self.run_settings, self.run_jobs, self.run_paused = None, 1, False
@@ -462,7 +465,7 @@ class ArchiverGUI(QWidget):
         self.table.setSortingEnabled(True)
         self.table.sortByColumn(COL_SIZE, Qt.DescendingOrder)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)   # Cmd/Ctrl and Shift select several
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setShowGrid(False)
         self.table.setAlternatingRowColors(True)
@@ -1053,13 +1056,17 @@ class ArchiverGUI(QWidget):
         if not self.is_archiving():
             return
         if self.worker.paused:
-            self.run_started += time.monotonic() - self.paused_at   # paused time does not count for the estimate
-            self.paused_at = None
+            paused = time.monotonic() - self.paused_at
+            self.run_started += paused   # paused time does not count for the estimate
+            self.paused_at = self.model.paused_since = None
+            for row in self.model.rows:   # nor for how long a video has been running
+                if row.status == "running" and row.started_at is not None:
+                    row.started_at += paused
             self.worker.resume()
             self.update_keep_awake()
             self.btn_pause.setText(tr("Pause"))
         else:
-            self.paused_at = time.monotonic()
+            self.paused_at = self.model.paused_since = time.monotonic()
             self.run_paused = True   # the times of this run no longer say how fast encoding is
             self.worker.pause()
             self.update_keep_awake()                                # nothing runs, the computer may sleep
@@ -1076,10 +1083,13 @@ class ArchiverGUI(QWidget):
     @Slot(str, str, str, dict)
     def on_status_update(self, path, status, reason, data):
         if status == "running":
-            self.file_started.setdefault(path, time.monotonic())
-            self.model.update(path, status="running", speed=reason)
+            started = self.file_started.setdefault(path, time.monotonic())
+            self.model.update(path, status="running", speed=reason, started_at=started)
             return
         if status == "finished":
+            row = self.model.row_for(path)
+            if row is not None and row.started_at is not None:
+                self.model.update(path, took=time.monotonic() - row.started_at)
             self.record_speed(path)
         values = {"status": status, "note": reason, "speed": ""}
         if status in ("finished", "skipped") and data:
@@ -1133,6 +1143,8 @@ class ArchiverGUI(QWidget):
     @Slot(str, float)
     def on_duration_found(self, path, duration):
         self.model.update(path, duration=duration)
+        if self.is_archiving() and self.table.horizontalHeader().sortIndicatorSection() == COL_DURATION:
+            self.requeue_timer.start()
 
     @Slot(str, int)
     def on_file_progress(self, path, percent):
@@ -1314,22 +1326,36 @@ class ArchiverGUI(QWidget):
         return " ".join(parts)
 
     # ------------------------------------------------------------- row detail
-    def selected_row(self):
-        indexes = self.table.selectionModel().selectedRows()
-        return indexes[0].data(Qt.UserRole + 1) if indexes else None
+    def selected_rows(self):
+        """The selected rows in the order they are shown."""
+        indexes = sorted(self.table.selectionModel().selectedRows(), key=lambda index: index.row())
+        return [index.data(Qt.UserRole + 1) for index in indexes]
 
-    def add_file_actions(self, menu, row):
-        """Replace/swap/delete; also offered during a run, except for the video being compressed."""
-        src_ok, dst_ok = row.src.exists(), row.dst.exists() and row.out_size is not None
-        editable = row.status != "running"
-        for text, action, enabled in (
-            (tr("Replace original with result…"), "overwrite", src_ok and dst_ok),
-            (tr("Swap original and result…"), "swap", src_ok and dst_ok),
-            (tr("Delete original…"), "del_orig", src_ok and dst_ok),  # only with a result to fall back on
-            (tr("Delete result…"), "del_comp", dst_ok),
+    @staticmethod
+    def file_action_applies(action, row):
+        """Not for the video being compressed; deleting or replacing the original needs a result to fall back on."""
+        if row.status == "running" or not row.has_result:
+            return False
+        return action == "del_comp" or row.src.exists()
+
+    def add_file_actions(self, menu, rows):
+        """Replace/swap/delete for one or several rows; also offered during a run, except for the video being compressed."""
+        rows = rows if isinstance(rows, list) else [rows]
+        for text, action in (
+            (tr("Replace original with result…"), "overwrite"),
+            (tr("Swap original and result…"), "swap"),
+            (tr("Delete original…"), "del_orig"),
+            (tr("Delete result…"), "del_comp"),
         ):
-            act = menu.addAction(text, lambda a=action: self.handle_compare_action(a, row))
-            act.setEnabled(enabled and editable)
+            count = sum(self.file_action_applies(action, row) for row in rows)
+            label = text if len(rows) == 1 else f"{text} ({count})"
+            act = menu.addAction(label, lambda a=action: self.handle_compare_action(a, rows))
+            act.setEnabled(count > 0)
+
+    def move_up_rows(self, rows):
+        """Several videos to the front of the queue, keeping their order in the table."""
+        for row in reversed([row for row in rows if row.status == "planned"]):
+            self.move_up(row)
 
     def build_row_menu(self, row):
         """Everything that can be done with a row; used for the right-click menu."""
@@ -1349,25 +1375,37 @@ class ArchiverGUI(QWidget):
         self.add_file_actions(menu, row)
         return menu
 
+    def build_rows_menu(self, rows):
+        """The right-click menu for several selected rows: what can be applied to all of them."""
+        menu = QMenu(self)
+        menu.addAction(tr("Process next"), lambda: self.move_up_rows(rows)).setEnabled(
+            any(row.status == "planned" for row in rows))
+        menu.addSeparator()
+        self.add_file_actions(menu, rows)
+        return menu
+
     def show_row_menu(self, pos):
         index = self.table.indexAt(pos)
         if not index.isValid():
             return
-        self.table.selectRow(index.row())
-        self.build_row_menu(index.data(Qt.UserRole + 1)).exec(self.table.viewport().mapToGlobal(pos))
+        rows = self.selected_rows()
+        clicked = index.data(Qt.UserRole + 1)
+        if len(rows) > 1 and clicked in rows:   # right-click inside a multiple selection keeps it
+            menu = self.build_rows_menu(rows)
+        else:
+            self.table.selectRow(index.row())
+            menu = self.build_row_menu(clicked)
+        menu.exec(self.table.viewport().mapToGlobal(pos))
 
     def update_detail_bar(self, *_):
-        row = self.selected_row()
+        rows = self.selected_rows()
         while self.detail_layout.count():
             item = self.detail_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
-        if row is None:
+        if not rows:
             self.detail_bar.hide()
             return
-        name = QLabel(f"<b>{row.src.name}</b>" + (f" · {row.note}" if row.note else ""))
-        name.setTextFormat(Qt.RichText)
-        self.detail_layout.addWidget(name, stretch=1)
 
         def add(text, handler, enabled=True):
             button = QPushButton(text)
@@ -1375,6 +1413,25 @@ class ArchiverGUI(QWidget):
             button.clicked.connect(handler)
             self.detail_layout.addWidget(button)
             return button
+
+        if len(rows) > 1:
+            label = QLabel(f"<b>{tr('{count} videos selected', count=len(rows))}</b>")
+            label.setTextFormat(Qt.RichText)
+            self.detail_layout.addWidget(label, stretch=1)
+            add(tr("Process next"), lambda: self.move_up_rows(rows), any(r.status == "planned" for r in rows))
+            self.btn_file_actions = QPushButton(tr("File actions"))
+            menu = QMenu(self.btn_file_actions)
+            self.add_file_actions(menu, rows)
+            self.btn_file_actions.setMenu(menu)
+            self.btn_file_actions.setEnabled(any(a.isEnabled() for a in menu.actions()))
+            self.detail_layout.addWidget(self.btn_file_actions)
+            self.detail_bar.show()
+            return
+
+        row = rows[0]
+        name = QLabel(f"<b>{row.src.name}</b>" + (f" · {row.note}" if row.note else ""))
+        name.setTextFormat(Qt.RichText)
+        self.detail_layout.addWidget(name, stretch=1)
 
         src_ok, dst_ok = row.src.exists(), row.dst.exists() and row.out_size is not None
         if row.status == "planned":
@@ -1423,42 +1480,63 @@ class ArchiverGUI(QWidget):
         self.log_dialog = LogDialog(row, self)
         self.log_dialog.show()
 
-    def handle_compare_action(self, action, row):
-        orig_path, comp_path = row.src, row.dst
-        ask = lambda title, text: QMessageBox.question(self, title, text, QMessageBox.Yes | QMessageBox.No, QMessageBox.No) == QMessageBox.Yes
-        try:
-            if action == "overwrite":
-                if not ask(tr("Overwrite"), tr("Really replace the original '{name}' with the compressed version?", name=orig_path.name)):
-                    return
-                new_orig_path = orig_path.with_name(comp_path.name)
-                shutil.copy2(comp_path, new_orig_path)
-                if new_orig_path != orig_path:
-                    orig_path.unlink()
-                self.model.update(row.src, note=tr("original replaced"))
-            elif action == "swap":
-                if not ask(tr("Swap"), tr("Really swap the original and the compressed version?")):
-                    return
-                temp_path = orig_path.with_name(orig_path.name + ".tmp")
-                shutil.move(orig_path, temp_path)
-                shutil.move(comp_path, orig_path)
-                shutil.move(temp_path, comp_path)
-                self.model.update(row.src, note=tr("swapped"))
-            elif action == "del_orig":
-                if not ask(tr("Delete"), tr("Really delete the original '{name}'?\nThis cannot be undone!", name=orig_path.name)):
-                    return
-                orig_path.unlink()
-                self.model.update(row.src, note=tr("original deleted"))
-            elif action == "del_comp":
-                if not ask(tr("Delete"), tr("Really delete the compressed version '{name}'?\nThis cannot be undone!", name=comp_path.name)):
-                    return
-                comp_path.unlink()
-                self.model.update(row.src, note=tr("result deleted"), out_size=None,
-                                  status="planned" if orig_path.exists() else row.status)
-                if orig_path.exists():
-                    self.schedule_scan()
-        except OSError as e:
-            QMessageBox.critical(self, tr("Error"), tr("The action failed: {error}", error=e))
+    def handle_compare_action(self, action, rows):
+        """Replace/swap/delete for one row or a list of rows, after one confirmation; rows it does not apply to are left out."""
+        rows = [row for row in (rows if isinstance(rows, list) else [rows]) if self.file_action_applies(action, row)]
+        if not rows:
+            return
+        if len(rows) == 1:
+            name = rows[0].src.name if action != "del_comp" else rows[0].dst.name
+            title, text = {
+                "overwrite": (tr("Overwrite"), tr("Really replace the original '{name}' with the compressed version?", name=name)),
+                "swap": (tr("Swap"), tr("Really swap the original and the compressed version?")),
+                "del_orig": (tr("Delete"), tr("Really delete the original '{name}'?\nThis cannot be undone!", name=name)),
+                "del_comp": (tr("Delete"), tr("Really delete the compressed version '{name}'?\nThis cannot be undone!", name=name)),
+            }[action]
+        else:
+            count = len(rows)
+            title, text = {
+                "overwrite": (tr("Overwrite"), tr("Really replace {count} originals with their compressed versions?", count=count)),
+                "swap": (tr("Swap"), tr("Really swap original and compressed version of {count} videos?", count=count)),
+                "del_orig": (tr("Delete"), tr("Really delete {count} originals?\nThis cannot be undone!", count=count)),
+                "del_comp": (tr("Delete"), tr("Really delete {count} compressed versions?\nThis cannot be undone!", count=count)),
+            }[action]
+        if QMessageBox.question(self, title, text, QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+            return
+        failed = []
+        for row in rows:
+            try:
+                self.apply_file_action(action, row)
+            except OSError as e:
+                failed.append(f"{row.src.name}: {e}" if len(rows) > 1 else str(e))
+        if action == "del_comp" and any(row.src.exists() for row in rows):
+            self.schedule_scan()
+        if failed:
+            QMessageBox.critical(self, tr("Error"), tr("The action failed: {error}", error="\n".join(failed)))
         self.update_detail_bar()
+
+    def apply_file_action(self, action, row):
+        orig_path, comp_path = row.src, row.dst
+        if action == "overwrite":
+            new_orig_path = orig_path.with_name(comp_path.name)
+            if not (new_orig_path.exists() and new_orig_path.samefile(comp_path)):   # result already next to it
+                shutil.copy2(comp_path, new_orig_path)
+            if new_orig_path != orig_path:
+                orig_path.unlink()
+            self.model.update(row.src, note=tr("original replaced"))
+        elif action == "swap":
+            temp_path = orig_path.with_name(orig_path.name + ".tmp")
+            shutil.move(orig_path, temp_path)
+            shutil.move(comp_path, orig_path)
+            shutil.move(temp_path, comp_path)
+            self.model.update(row.src, note=tr("swapped"))
+        elif action == "del_orig":
+            orig_path.unlink()
+            self.model.update(row.src, note=tr("original deleted"))
+        elif action == "del_comp":
+            comp_path.unlink()
+            self.model.update(row.src, note=tr("result deleted"), out_size=None,
+                              status="planned" if orig_path.exists() else row.status)
 
     # ------------------------------------------------------------------ files
     def clear_cache(self):

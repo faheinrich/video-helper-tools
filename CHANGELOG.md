@@ -11,7 +11,7 @@ All notable changes to the two apps and the shared core. The format follows
   captions were hard to read.
 - The update check fix of 0.0.4 and the shared dark mode fixes reach this app with its next release.
 
-## [0.0.4] - 2026-11-07
+## [0.0.4] - 2026-11-09
 
 Archive Helper `archive-v0.0.4`. Analysis Helper is not released this time and stays at 0.0.2.
 
@@ -21,6 +21,11 @@ Archive Helper `archive-v0.0.4`. Analysis Helper is not released this time and s
   the scores in the tooltip, and the end of the run names how many there are.
 - New: a checkbox "Ignore hidden files/folders" (on by default) skips everything whose name starts with a dot, and
   hidden folders such as `.hermes` are not even entered. macOS `._` metadata files are always skipped.
+- New: several videos can be selected with Cmd/Ctrl-click and Shift-click. The bar below the table and the right-click
+  menu then apply "Process next" and the file actions (replace, swap, delete) to all of them, with one confirmation;
+  videos an action does not fit (no result yet, being compressed) are left out, and the menu shows how many it affects.
+- New: the status of a running video shows in its tooltip how long it has been compressing and about how long it still
+  needs (paused time left out); a finished one shows how long it took.
 - Changed: the settings drawer groups its options into Search, Encoding and Output, and the search options are always visible.
 - Fixed: the number after the savings arrow is now the total size after compression; it showed the amount saved.
 - Fixed: dark mode was hard to read on macOS (glaring summary card, invisible captions and placeholders, dim status colours,
@@ -31,6 +36,11 @@ Archive Helper `archive-v0.0.4`. Analysis Helper is not released this time and s
 - Fixed: with FFmpeg 8 or newer the compression lab showed no frames for HDR videos (the colour matrix name `bt2020nc` is no
   longer accepted by the scale filter; `bt2020` works).
 - Fixed: the name of a selected video was white on a pale selection, and so unreadable, when the window was not in front.
+- Fixed: sorted by duration, a run started before all durations were read processed the videos without a known
+  duration first, so it seemed to skip around in the table. The waiting videos are now put in order again as the
+  durations come in.
+- Fixed: "Replace original" failed with "are the same file" when the result was written next to the original; it now
+  just removes the original there.
 - Fixed (probably): the update check could fail silently on a Mac where the bundled Python did not find the system's
   certificate list. The check now uses the certificates shipped with the app (certifi), records any failure, and the
   About dialog says how the check went ("this is the newest version (latest release: …)", "failed: …", "switched off").

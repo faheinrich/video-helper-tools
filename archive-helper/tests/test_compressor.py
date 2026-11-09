@@ -580,6 +580,75 @@ def test_replace_original_with_result(archived_row):
     assert (src.parent / dst.name).read_bytes() == b"result"
 
 
+def test_replace_original_with_a_result_in_the_same_folder(archived_row):
+    """The result already sits next to the original: replacing only removes the original (was "the same file")."""
+    gui, row, src, _ = archived_row
+    result = src.parent / "clip_archived.mp4"
+    result.write_bytes(b"result")
+    gui.model.update(row.src, dst=result)
+    gui.handle_compare_action("overwrite", gui.model.rows[0])
+    assert sorted(p.name for p in src.parent.iterdir()) == ["clip_archived.mp4"]
+    assert result.read_bytes() == b"result"
+
+
+@pytest.fixture
+def three_rows(qapp, make_gui, tmp_path, monkeypatch):
+    """Two videos with a result next to them and one still planned; confirmations counted and answered Yes."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QMessageBox
+    from archive_helper.compressor.model import VideoRow
+
+    questions = []
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: questions.append(a[2]) or QMessageBox.Yes))
+    folder = tmp_path / "src"
+    folder.mkdir()
+    rows = []
+    for name, done in (("a", True), ("b", True), ("c", False)):
+        src, dst = folder / f"{name}.mov", folder / f"{name}_archived.mp4"
+        src.write_bytes(b"original")
+        if done:
+            dst.write_bytes(b"result")
+        rows.append(VideoRow(src=src, dst=dst, size=8, status="exists" if done else "planned",
+                             out_size=6 if done else None))
+    gui = make_gui()
+    gui.scan_items = [{'path': r.src, 'dst_path': r.dst, 'size': 8} for r in rows]
+    gui.model.reset(rows)
+    gui.table.sortByColumn(0, Qt.AscendingOrder)
+    return gui, folder, questions
+
+
+def test_several_videos_can_be_selected_and_get_the_file_actions_at_once(three_rows):
+    from PySide6.QtWidgets import QLabel
+
+    gui, folder, questions = three_rows
+    gui.table.selectAll()
+    assert len(gui.selected_rows()) == 3
+    assert "3 Videos ausgewählt" in gui.detail_bar.findChild(QLabel).text()
+    assert menu_texts(gui.btn_file_actions.menu()) == {
+        "Original durch Ergebnis ersetzen… (2)": True, "Original und Ergebnis tauschen… (2)": True,
+        "Original löschen… (2)": True, "Ergebnis löschen… (2)": True}
+    assert menu_texts(gui.build_rows_menu(gui.selected_rows()))["Als Nächstes"]   # c.mp4 is still planned
+
+    gui.handle_compare_action("overwrite", gui.selected_rows())
+    assert questions == ["2 Originale wirklich durch ihre komprimierten Versionen ersetzen?"]   # one question for all
+    assert sorted(p.name for p in folder.iterdir()) == ["a_archived.mp4", "b_archived.mp4", "c.mov"]
+
+
+def test_a_failure_on_one_video_does_not_stop_the_others(three_rows, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    gui, folder, _ = three_rows
+    errors = []
+    monkeypatch.setattr(QMessageBox, "critical", staticmethod(lambda *a, **k: errors.append(a[2])))
+    (folder / "a_archived.mp4").unlink()   # gone behind the app's back
+    gui.model.rows[0].out_size = 6
+    rows = gui.model.rows[:2]
+    monkeypatch.setattr(type(gui), "file_action_applies", staticmethod(lambda action, row: True))
+    gui.handle_compare_action("del_comp", rows)
+    assert not (folder / "b_archived.mp4").exists()
+    assert len(errors) == 1 and "a.mov" in errors[0]
+
+
 def test_delete_original_and_delete_result(archived_row):
     gui, row, src, dst = archived_row
     gui.handle_compare_action("del_comp", row)
@@ -970,6 +1039,55 @@ def test_pause_freezes_the_run_and_lets_the_computer_sleep(qapp, make_gui, tmp_p
     gui.stop_archiving()
     wait_idle(qapp, gui)
     assert gui.btn_pause.isHidden()
+
+
+def test_durations_found_during_a_run_put_the_waiting_videos_in_order(qapp, make_gui, tmp_path, fake_worker):
+    """Durations come in the background: started before they were all known, the queue still follows the sorting."""
+    from PySide6.QtCore import Qt
+    from archive_helper.compressor.model import COL_DURATION
+
+    gui = started_gui(qapp, make_gui, tmp_path, fake_worker)
+    gui.table.sortByColumn(COL_DURATION, Qt.AscendingOrder)
+    gui.start_archiving()
+    queued = []
+    gui.worker.set_queue = lambda items: queued.append([item['path'].name for item in items])
+
+    src = tmp_path / "src"
+    gui.on_duration_found(str(src / "a.mp4"), 9.0)
+    gui.on_duration_found(str(src / "b.mp4"), 2.0)
+    spin(600)
+    assert queued == [["b.mp4", "a.mp4"]]   # once, after the durations settled
+    gui.stop_archiving()
+    wait_idle(qapp, gui)
+
+
+def test_status_tooltip_shows_running_time_time_left_and_how_long_it_took(qapp, make_gui, tmp_path, fake_worker):
+    from PySide6.QtCore import Qt
+    from archive_helper.compressor.model import COL_STATUS
+
+    gui = started_gui(qapp, make_gui, tmp_path, fake_worker)
+    gui.start_archiving()
+    path = str(tmp_path / "src" / "a.mp4")
+    tooltip = lambda: gui.model.data(gui.model.index(0, COL_STATUS), Qt.ToolTipRole)
+
+    gui.on_status_update(path, "running", "", {})
+    assert tooltip() == "Läuft seit 0 Sek. · Restzeit wird geschätzt…"
+    gui.model.rows[0].started_at -= 150   # started 2.5 minutes ago
+    gui.on_file_progress(path, 25)
+    assert tooltip() == "Läuft seit 2 Min. 30 Sek. · noch etwa 7 Min. 30 Sek."
+
+    gui.toggle_pause()   # a pause neither counts as running time …
+    gui.model.rows[0].started_at -= 600   # 10 minutes pass while paused
+    gui.paused_at -= 600
+    gui.model.paused_since -= 600
+    assert tooltip().startswith("Läuft seit 2 Min. 30 Sek.")
+    gui.toggle_pause()   # … nor afterwards
+    assert tooltip().startswith("Läuft seit 2 Min. 30 Sek.")
+
+    gui.on_status_update(path, "finished", "-40 %", {"src_size": 100, "dst_size": 60})
+    assert tooltip() == "Hat 2 Min. 30 Sek. gedauert\n-40 %"
+    gui.stop_archiving()
+    wait_idle(qapp, gui)
 
 
 def test_keep_awake_follows_the_checkbox_next_to_start(qapp, make_gui, tmp_path, fake_worker):

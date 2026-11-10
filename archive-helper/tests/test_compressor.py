@@ -591,6 +591,38 @@ def test_replace_original_with_a_result_in_the_same_folder(archived_row):
     assert result.read_bytes() == b"result"
 
 
+def test_replace_original_with_a_result_of_the_same_name_keeps_the_original_in_the_trash(archived_row, trash):
+    # Regression: with the same name (empty name ending, other folder) the copy overwrote the original in place,
+    # so it never reached the trash.
+    gui, row, src, dst = archived_row
+    same_name = dst.with_name(src.name)
+    dst.rename(same_name)
+    gui.model.update(row.src, dst=same_name)
+    gui.handle_compare_action("overwrite", gui.model.rows[0])
+    assert src.read_bytes() == b"result" and (trash / src.name).read_bytes() == b"original"
+    assert sorted(p.name for p in src.parent.iterdir()) == [src.name]   # no temporary file left
+
+
+def test_replace_original_moves_another_file_with_the_results_name_to_the_trash(archived_row, trash):
+    gui, row, src, dst = archived_row
+    older = src.parent / dst.name
+    older.write_bytes(b"older copy")
+    gui.handle_compare_action("overwrite", row)
+    assert older.read_bytes() == b"result"
+    assert sorted(p.read_bytes() for p in trash.iterdir()) == [b"older copy", b"original"]
+
+
+def test_replace_original_changes_nothing_when_the_trash_refuses(archived_row, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+    from video_helper_core import trash as trash_module
+
+    gui, row, src, dst = archived_row
+    monkeypatch.setattr(QMessageBox, "critical", staticmethod(lambda *a, **k: None))
+    monkeypatch.setattr(trash_module, "_system_trash", lambda path: False)
+    gui.handle_compare_action("overwrite", row)
+    assert sorted(p.name for p in src.parent.iterdir()) == [src.name] and src.read_bytes() == b"original"
+
+
 @pytest.fixture
 def three_rows(qapp, make_gui, tmp_path, monkeypatch):
     """Two videos with a result next to them and one still planned; confirmations counted and answered Yes."""

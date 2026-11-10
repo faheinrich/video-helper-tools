@@ -1570,10 +1570,22 @@ class ArchiverGUI(QWidget):
         orig_path, comp_path = row.src, row.dst
         if action == "overwrite":
             new_orig_path = orig_path.with_name(comp_path.name)
-            if not (new_orig_path.exists() and new_orig_path.samefile(comp_path)):   # result already next to it
-                shutil.copy2(comp_path, new_orig_path)
-            if new_orig_path != orig_path:
+            if new_orig_path.exists() and new_orig_path.samefile(comp_path):   # result already next to it
                 move_to_trash(orig_path)
+            else:
+                # Copied under a temporary name first: the original (and any other file with the result's name)
+                # only goes to the trash once the copy is complete, and is never overwritten in place, even
+                # when the result has the very same name.
+                temp_path = new_orig_path.with_name(f".{new_orig_path.name}.replacing")
+                shutil.copy2(comp_path, temp_path)
+                try:
+                    move_to_trash(orig_path)
+                    if new_orig_path.exists():
+                        move_to_trash(new_orig_path)
+                except OSError:
+                    temp_path.unlink(missing_ok=True)
+                    raise
+                temp_path.replace(new_orig_path)
             self.model.update(row.src, note=tr("original replaced"))
         elif action == "swap":
             temp_path = orig_path.with_name(orig_path.name + ".tmp")

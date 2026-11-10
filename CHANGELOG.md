@@ -32,6 +32,9 @@ Archive Helper `archive-v0.0.4`. Analysis Helper is not released this time and s
 - Changed: files the app removes go to the trash instead of being deleted for good: "Move original/result to trash"
   (formerly "Delete"), the original when "Replace original" is used, and the original or an earlier result that a new
   result replaces. If a file cannot be moved to the trash, it is left where it is and the action reports an error.
+- Fixed: "Replace original" overwrote the original directly, without the trash, when the result had the same name
+  (empty name ending, other folder); another file with the result's name next to the original was overwritten too.
+  Both now go to the trash, and only once the copy of the result is complete.
 - New: the comparison of original and result can show them in three ways (buttons next to "Reset view", the choice is
   kept): side by side as before; "◧ Slider", one picture with a dividing line to drag, the original left of it and the
   compressed version right of it; and "⇄ Flip", one picture that changes between the two every 2 seconds (also while

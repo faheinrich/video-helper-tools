@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import subprocess
 import re
@@ -87,6 +88,9 @@ def parse_excludes(text):
     return tuple(part.lower() for part in re.split(r"[,;\s]+", text) if part)
 
 
+THUMBNAIL_WIDTH = 320   # sharp up to the widest preview column; part of the cache key, so older small ones are made anew
+
+
 def get_thumbnail_path(video_path):
     # Size and mtime are part of the key so a replaced file does not keep showing the old picture.
     try:
@@ -94,7 +98,7 @@ def get_thumbnail_path(video_path):
         stamp = f"{stat.st_size}:{stat.st_mtime_ns}"
     except OSError:
         stamp = ""
-    video_hash = hashlib.md5(f"{video_path}|{stamp}".encode()).hexdigest()
+    video_hash = hashlib.md5(f"{video_path}|{stamp}|{THUMBNAIL_WIDTH}".encode()).hexdigest()
     return thumbnail_dir() / f"{video_hash}.jpg"
 
 
@@ -127,17 +131,33 @@ def clear_caches():
             pass
     return freed
 
-def generate_thumbnail(video_path, output_path):
+def generate_thumbnail(video_path, output_path, cancelled=None):
+    """Writes one frame as JPEG; returns True on success. Runs at low priority so playback and
+    the GUI stay smooth, and stops at once when `cancelled` (a threading.Event) is set."""
     # One second in avoids black first frames; clips shorter than that fall back to the
     # first frame. Seeking before -i jumps to a keyframe instead of decoding up to it.
     output_path = Path(output_path)
+    low_priority = {"creationflags": 0x00004000} if sys.platform == "win32" else {"preexec_fn": lambda: os.nice(10)}
     for offset in ("1", "0"):
         cmd = ["ffmpeg", "-y", "-loglevel", "error", "-ss", offset, "-i", str(video_path),
-               "-frames:v", "1", "-vf", "scale=160:-2", str(output_path)]
-        try:
-            subprocess.run(cmd, capture_output=True, timeout=60)
-        except (OSError, subprocess.TimeoutExpired):
+               "-frames:v", "1", "-an", "-sn", "-vf", f"scale={THUMBNAIL_WIDTH}:-2", str(output_path)]
+        if cancelled is not None and cancelled.is_set():
             return False
+        try:
+            process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **low_priority)
+        except OSError:
+            return False
+        deadline = time.monotonic() + 60
+        while True:
+            try:
+                process.wait(timeout=0.1)
+                break
+            except subprocess.TimeoutExpired:
+                if (cancelled is not None and cancelled.is_set()) or time.monotonic() > deadline:
+                    process.kill()
+                    process.wait()
+                    output_path.unlink(missing_ok=True)  # may be half written
+                    return False
         if output_path.exists() and output_path.stat().st_size > 0:
             return True
     return False

@@ -7,6 +7,7 @@ All notable changes to the two apps and the shared core. The format follows
 ## [Unreleased]
 
 ### Analysis Helper
+- Changed: when a transcription replaces an existing EAF file, the earlier one goes to the trash.
 - Fixed: dark mode on macOS: the transcriber's panels glared bright grey, and its section titles and the sync tool's waveform
   captions were hard to read.
 - The update check fix of 0.0.4 and the shared dark mode fixes reach this app with its next release.
@@ -26,6 +27,18 @@ Archive Helper `archive-v0.0.4`. Analysis Helper is not released this time and s
   videos an action does not fit (no result yet, being compressed) are left out, and the menu shows how many it affects.
 - New: the status of a running video shows in its tooltip how long it has been compressing and about how long it still
   needs (paused time left out); a finished one shows how long it took.
+- New: the preview picture has its own column. Drag its edge to make the previews bigger (up to 320 px); the rows grow
+  with it, and the width is kept for the next start. Previews are now made at 320 px, so they are made anew once.
+- Changed: files the app removes go to the trash instead of being deleted for good: "Move original/result to trash"
+  (formerly "Delete"), the original when "Replace original" is used, and the original or an earlier result that a new
+  result replaces. If a file cannot be moved to the trash, it is left where it is and the action reports an error.
+- New: the comparison of original and result can show them in three ways (buttons next to "Reset view", the choice is
+  kept): side by side as before; "◧ Slider", one picture with a dividing line to drag, the original left of it and the
+  compressed version right of it; and "⇄ Flip", one picture that changes between the two every 2 seconds (also while
+  paused), framed in blue for the original and red for the compressed version. Zoom and panning work as before and keep both pictures aligned.
+- Fixed: zooming out with the mouse wheel below the starting size only zoomed one of the two compared videos.
+- Changed: sorting by file name now goes by sub folder first and then by name, so the videos of a folder stay together
+  (and a folder's own videos come before those of its sub folders).
 - Changed: the settings drawer groups its options into Search, Encoding and Output, and the search options are always visible.
 - Fixed: the number after the savings arrow is now the total size after compression; it showed the amount saved.
 - Fixed: dark mode was hard to read on macOS (glaring summary card, invisible captions and placeholders, dim status colours,
@@ -36,6 +49,11 @@ Archive Helper `archive-v0.0.4`. Analysis Helper is not released this time and s
 - Fixed: with FFmpeg 8 or newer the compression lab showed no frames for HDR videos (the colour matrix name `bt2020nc` is no
   longer accepted by the scale filter; `bt2020` works).
 - Fixed: the name of a selected video was white on a pale selection, and so unreadable, when the window was not in front.
+- Fixed: closing the window while the previews of a large folder were still being made left the process running until
+  all of them were done. Waiting previews are now dropped and running ones stopped when the window closes or another
+  folder is loaded.
+- Changed: previews are made three at a time at low priority, the visible rows first, and none start while a video
+  plays in the comparison, so playback is no longer slowed down by them.
 - Fixed: sorted by duration, a run started before all durations were read processed the videos without a known
   duration first, so it seemed to skip around in the table. The waiting videos are now put in order again as the
   durations come in.

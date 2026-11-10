@@ -553,7 +553,7 @@ def test_file_actions_are_offered_for_archived_videos(archived_row):
     assert gui.btn_file_actions.isEnabled()
     assert menu_texts(gui.btn_file_actions.menu()) == {
         "Original durch Ergebnis ersetzen…": True, "Original und Ergebnis tauschen…": True,
-        "Original löschen…": True, "Ergebnis löschen…": True,
+        "Original in den Papierkorb…": True, "Ergebnis in den Papierkorb…": True,
     }
     context = menu_texts(gui.build_row_menu(row))
     assert context["Vergleichen"] and context["Original durch Ergebnis ersetzen…"]
@@ -573,10 +573,10 @@ def test_swap_original_and_result(archived_row):
     assert (src.read_bytes(), dst.read_bytes()) == (b"result", b"original")
 
 
-def test_replace_original_with_result(archived_row):
+def test_replace_original_with_result(archived_row, trash):
     gui, row, src, dst = archived_row
     gui.handle_compare_action("overwrite", row)
-    assert not src.exists()
+    assert not src.exists() and (trash / src.name).read_bytes() == b"original"
     assert (src.parent / dst.name).read_bytes() == b"result"
 
 
@@ -613,11 +613,11 @@ def three_rows(qapp, make_gui, tmp_path, monkeypatch):
     gui = make_gui()
     gui.scan_items = [{'path': r.src, 'dst_path': r.dst, 'size': 8} for r in rows]
     gui.model.reset(rows)
-    gui.table.sortByColumn(0, Qt.AscendingOrder)
+    gui.table.sortByColumn(1, Qt.AscendingOrder)   # by file
     return gui, folder, questions
 
 
-def test_several_videos_can_be_selected_and_get_the_file_actions_at_once(three_rows):
+def test_several_videos_can_be_selected_and_get_the_file_actions_at_once(three_rows, trash):
     from PySide6.QtWidgets import QLabel
 
     gui, folder, questions = three_rows
@@ -626,12 +626,14 @@ def test_several_videos_can_be_selected_and_get_the_file_actions_at_once(three_r
     assert "3 Videos ausgewählt" in gui.detail_bar.findChild(QLabel).text()
     assert menu_texts(gui.btn_file_actions.menu()) == {
         "Original durch Ergebnis ersetzen… (2)": True, "Original und Ergebnis tauschen… (2)": True,
-        "Original löschen… (2)": True, "Ergebnis löschen… (2)": True}
+        "Original in den Papierkorb… (2)": True, "Ergebnis in den Papierkorb… (2)": True}
     assert menu_texts(gui.build_rows_menu(gui.selected_rows()))["Als Nächstes"]   # c.mp4 is still planned
 
     gui.handle_compare_action("overwrite", gui.selected_rows())
-    assert questions == ["2 Originale wirklich durch ihre komprimierten Versionen ersetzen?"]   # one question for all
+    # one question for all
+    assert questions == ["2 Originale durch ihre komprimierten Versionen ersetzen? Die Originale kommen in den Papierkorb."]
     assert sorted(p.name for p in folder.iterdir()) == ["a_archived.mp4", "b_archived.mp4", "c.mov"]
+    assert sorted(p.name for p in trash.iterdir()) == ["a.mov", "b.mov"]
 
 
 def test_a_failure_on_one_video_does_not_stop_the_others(three_rows, monkeypatch):
@@ -649,15 +651,28 @@ def test_a_failure_on_one_video_does_not_stop_the_others(three_rows, monkeypatch
     assert len(errors) == 1 and "a.mov" in errors[0]
 
 
-def test_delete_original_and_delete_result(archived_row):
+def test_original_and_result_go_to_the_trash(archived_row, trash):
     gui, row, src, dst = archived_row
     gui.handle_compare_action("del_comp", row)
-    assert not dst.exists() and src.exists()
+    assert not dst.exists() and src.exists() and (trash / dst.name).read_bytes() == b"result"
     assert gui.model.rows[0].status == "planned"  # can be compressed again
     dst.write_bytes(b"result")
     gui.model.update(row.src, out_size=6, status="exists")
     gui.handle_compare_action("del_orig", row)
-    assert not src.exists() and dst.exists()
+    assert not src.exists() and dst.exists() and (trash / src.name).read_bytes() == b"original"
+
+
+def test_nothing_is_deleted_when_the_trash_refuses(archived_row, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+    from video_helper_core import trash as trash_module
+
+    gui, row, src, dst = archived_row
+    errors = []
+    monkeypatch.setattr(QMessageBox, "critical", staticmethod(lambda *a, **k: errors.append(a[2])))
+    monkeypatch.setattr(trash_module, "_system_trash", lambda path: False)   # e.g. a drive without a trash
+    gui.handle_compare_action("del_orig", row)
+    assert src.read_bytes() == b"original" and dst.exists()
+    assert errors and "Papierkorb" in errors[0]
 
 
 @requires_ffmpeg
@@ -828,7 +843,8 @@ def test_file_names_stay_visible_with_the_settings_drawer_open(make_gui, qapp, w
     gui.show()
     qapp.processEvents()
     assert gui.drawer.isVisible()
-    assert gui.table.horizontalHeader().sectionSize(COL_FILE) >= 180
+    # the preview has its own column now; the name had about 145 px next to the old built-in thumbnail
+    assert gui.table.horizontalHeader().sectionSize(COL_FILE) >= 140
 
 
 def test_rows_are_numbered_in_the_order_they_are_shown(qapp, make_gui):
@@ -908,6 +924,30 @@ def test_columns_reach_the_right_edge(make_gui, qapp, width):
     assert header.length() >= gui.table.viewport().width()
 
 
+def test_the_preview_column_can_be_dragged_bigger_and_keeps_its_width(make_gui, qapp):
+    from archive_helper.compressor.model import COL_THUMB
+
+    gui = make_gui()
+    gui.resize(1500, 600)
+    gui.show()
+    qapp.processEvents()
+    header, rows = gui.table.horizontalHeader(), gui.table.verticalHeader()
+    assert header.sectionSize(COL_THUMB) == 64 and rows.defaultSectionSize() == 46
+
+    header.resizeSection(COL_THUMB, 200)
+    assert rows.defaultSectionSize() == round(192 * 9 / 16) + 8   # 16:9 pictures, the rows grow with them
+    assert header.length() <= gui.table.viewport().width() + 1   # the file name made room, no sideways scrolling
+    header.resizeSection(COL_THUMB, 2000)
+    assert header.sectionSize(COL_THUMB) == 320   # the thumbnails are not sharper than that
+    header.resizeSection(COL_THUMB, 10)
+    assert header.sectionSize(COL_THUMB) == 40 and rows.defaultSectionSize() == 46
+
+    header.resizeSection(COL_THUMB, 150)
+    gui.save_view()
+    again = make_gui()
+    assert again.table.horizontalHeader().sectionSize(COL_THUMB) == 150
+
+
 def test_dragging_a_column_narrower_leaves_no_gap_at_the_right(make_gui, qapp):
     from archive_helper.compressor.model import COL_FILE
 
@@ -915,11 +955,11 @@ def test_dragging_a_column_narrower_leaves_no_gap_at_the_right(make_gui, qapp):
     gui.resize(1500, 600)
     gui.show()
     qapp.processEvents()
-    gui.table.horizontalHeader().resizeSection(COL_FILE, 250)
+    gui.table.horizontalHeader().resizeSection(COL_FILE, 180)
     qapp.processEvents()
     header = gui.table.horizontalHeader()
     assert header.length() >= gui.table.viewport().width()
-    assert header.sectionSize(5) > 160   # the status column took the freed room
+    assert header.sectionSize(6) > 160   # the status column took the freed room
 
 
 def test_progress_text_shows_how_many_durations_are_read(qapp, make_gui):
@@ -1400,3 +1440,27 @@ def test_shared_style_avoids_palette_roles_that_are_broken_in_macos_dark_mode():
     from video_helper_core.style import STYLE
 
     assert "alternate-base" not in STYLE and "placeholder-text)" not in STYLE
+
+
+def test_no_new_thumbnails_are_made_while_the_viewer_is_open(qapp, make_gui, tmp_path, monkeypatch):
+    # Thumbnails of a large folder kept the disk and the CPU busy, so the viewer could hardly play.
+    from types import SimpleNamespace
+
+    from archive_helper.compressor import gui as gui_module
+
+    seen = []
+
+    class FakeDialog:
+        def __init__(self, *args):
+            pass
+
+        def exec(self):
+            seen.append(gui.thumbnails.allowed.is_set())
+
+    monkeypatch.setattr(gui_module, "CompareVideoDialog", FakeDialog)
+    gui = make_gui()
+    video = tmp_path / "a.mp4"
+    video.write_bytes(b"x")
+    gui.compare(SimpleNamespace(src=video, dst=tmp_path / "missing.mp4", out_size=None))
+    assert seen == [False]
+    assert gui.thumbnails.allowed.is_set()

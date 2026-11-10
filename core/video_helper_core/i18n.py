@@ -32,6 +32,8 @@ def tr(text, **kwargs):
 # Texts of the shared shell plus texts both apps use; each app adds its own with register_german().
 GERMAN = {
     'Cancel': 'Abbrechen',
+    '{name} does not exist': '{name} gibt es nicht',
+    '{name} could not be moved to the trash': '{name} konnte nicht in den Papierkorb gelegt werden',
     'New version v{version} available': 'Neue Version v{version} verfügbar',
     'About': 'Über',
     'Choose a tool to start': 'Wähle ein Werkzeug',

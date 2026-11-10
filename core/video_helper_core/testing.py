@@ -22,6 +22,22 @@ def isolated_app_data(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def trash(tmp_path, monkeypatch):
+    """The real trash stays untouched: what the code under test throws away lands in this folder."""
+    from video_helper_core import trash as trash_module
+
+    folder = tmp_path / "Trash"
+
+    def to_folder(path):
+        folder.mkdir(exist_ok=True)
+        shutil.move(str(path), folder / path.name)
+        return True
+
+    monkeypatch.setattr(trash_module, "_system_trash", to_folder)
+    return folder
+
+
+@pytest.fixture(autouse=True)
 def no_update_check(monkeypatch):
     # The apps ask GitHub for new releases at start; tests must not use the network.
     from video_helper_core.updates import DISABLE_ENV

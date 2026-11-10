@@ -24,6 +24,7 @@ from analysis_helper.transcriber.protocol import DEFAULT_SERVER_URL, DEFAULT_SER
 from analysis_helper.transcriber import WHISPER_SERVER_FLAG
 from video_helper_core.style import STYLE
 from video_helper_core.i18n import tr
+from video_helper_core.trash import move_to_trash
 
 
 class ServerLogThread(QThread):
@@ -99,7 +100,7 @@ class TranscriptionThread(QThread):
                 generated_eaf = Path(self.video_path).with_suffix(".eaf")
                 if generated_eaf.exists() and str(generated_eaf) != self.eaf_path:
                     if os.path.exists(self.eaf_path):
-                        os.remove(self.eaf_path)
+                        move_to_trash(self.eaf_path)   # the earlier annotation stays recoverable
                     os.rename(generated_eaf, self.eaf_path)
             
             self.finished.emit(True, tr("Transcription finished successfully."))

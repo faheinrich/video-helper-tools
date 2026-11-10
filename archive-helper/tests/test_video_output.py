@@ -331,16 +331,18 @@ def video_codec(path):
     return streams(path, "video")[0]["codec_name"]
 
 
-def test_source_equals_target_replaces_the_original_with_the_smaller_compressed_file(qapp, tmp_path):
+def test_source_equals_target_replaces_the_original_with_the_smaller_compressed_file(qapp, tmp_path, trash):
     from archive_helper.compressor.utils import partial_path
 
     clip = make_clip(tmp_path / "clip.mp4", size="1920x1080", seconds=3)
     before = clip.stat().st_size
+    original = clip.read_bytes()
     assert video_codec(clip) == "h264"
     message, data = run_worker(qapp, clip, clip, replace_source=True)
     assert message.startswith("✅") and video_codec(clip) == "hevc"
     assert clip.stat().st_size < before and data["src_size"] == before and data["dst_size"] == clip.stat().st_size
     assert not partial_path(clip).exists()
+    assert (trash / "clip.mp4").read_bytes() == original   # the original is in the trash, not gone
 
 
 def test_a_replacement_that_is_not_smaller_keeps_the_original(qapp, tmp_path):

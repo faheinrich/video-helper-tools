@@ -76,8 +76,9 @@ def test_model_display_data(model):
     assert model.data(model.index(0, COL_SIZE), Qt.TextAlignmentRole) is not None
     assert model.data(model.index(0, COL_FILE), Qt.TextAlignmentRole) is None
     assert model.data(model.index(99, 0)) is None
-    for column in range(model.columnCount()):
+    for column in range(1, model.columnCount()):   # the preview column has no title, only a tooltip
         assert model.headerData(column, Qt.Horizontal)
+    assert model.headerData(0, Qt.Horizontal, Qt.ToolTipRole)
     assert model.rowCount() == 3
 
 
@@ -110,6 +111,22 @@ def test_thumbnails_are_stored_only_when_valid(model):
     assert model.thumbnails == {}
     model.set_thumbnail("/src/b.mp4", QPixmap(4, 4))
     assert "/src/b.mp4" in model.thumbnails
+
+
+def test_sorting_by_file_keeps_folders_together():
+    from pathlib import Path
+
+    root = Path("/fotos")
+    paths = ["2022 - Nizza/b.mov", "2022/Festival/a.mov", "2022/z.mov", "2021/c.mov", "2022/Festival/C.mov", "x.mov"]
+    model = VideoTableModel()
+    model.reset([VideoRow(src=root / p, dst=root / "out" / p, size=1, root=root) for p in paths])
+    proxy = VideoFilterProxy()
+    proxy.setSourceModel(model)
+    proxy.sort(COL_FILE, Qt.AscendingOrder)
+    shown = [model.rows[proxy.mapToSource(proxy.index(r, 0)).row()].src.relative_to(root).as_posix()
+             for r in range(proxy.rowCount())]
+    assert shown == ["x.mov", "2021/c.mov", "2022/z.mov", "2022/Festival/a.mov", "2022/Festival/C.mov",
+                     "2022 - Nizza/b.mov"]
 
 
 @pytest.mark.parametrize("column,expected", [
@@ -148,14 +165,14 @@ def test_delegates_paint_and_size_every_row(qapp, model):
     from PySide6.QtGui import QPixmap, QPainter
     from PySide6.QtWidgets import QStyleOptionViewItem
 
-    from archive_helper.compressor.model import FileDelegate, StatusDelegate
+    from archive_helper.compressor.model import COL_THUMB, FileDelegate, StatusDelegate, ThumbnailDelegate
 
     model.update("/src/b.mp4", status="running", progress=50, speed="1.5x", note="hello")
     model.rows[0].duplicate = True
     model.set_thumbnail("/src/A.mp4", QPixmap(32, 32))
     canvas = QPixmap(600, 100)
     painter = QPainter(canvas)
-    delegates = {COL_FILE: FileDelegate(model), COL_STATUS: StatusDelegate()}
+    delegates = {COL_THUMB: ThumbnailDelegate(model), COL_FILE: FileDelegate(model), COL_STATUS: StatusDelegate()}
     for column, delegate in delegates.items():
         for r in range(model.rowCount()):
             option = QStyleOptionViewItem()

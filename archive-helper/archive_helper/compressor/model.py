@@ -28,7 +28,7 @@ STATUS_COLORS = {
 WARNING_COLOR = QColor(201, 130, 31)   # orange: finished, but worth a look
 CONFLICT_COLOR = QColor(226, 84, 72)   # red: the result would replace the original
 
-COL_FILE, COL_DURATION, COL_SIZE, COL_RESULT, COL_SETTINGS, COL_STATUS = range(6)
+COL_THUMB, COL_FILE, COL_DURATION, COL_SIZE, COL_RESULT, COL_SETTINGS, COL_STATUS = range(7)
 
 
 def status_label(row):
@@ -165,13 +165,14 @@ class VideoTableModel(QAbstractTableModel):
         if index is None or pixmap is None or pixmap.isNull():
             return
         self.thumbnails[str(path)] = pixmap
-        self.dataChanged.emit(self.index(index, COL_FILE), self.index(index, COL_FILE))
+        self.dataChanged.emit(self.index(index, COL_THUMB), self.index(index, COL_THUMB))
 
     @staticmethod
     def sort_key(row, column):
         """Shared by the table sorting and the processing order."""
         return {
-            COL_FILE: row.src.name.lower(),
+            COL_THUMB: path_sort_key(row),
+            COL_FILE: path_sort_key(row),
             COL_DURATION: row.duration if row.duration is not None else -1.0,
             COL_SIZE: row.size,
             COL_RESULT: row.ratio if row.ratio is not None else 99.0,
@@ -190,15 +191,17 @@ class VideoTableModel(QAbstractTableModel):
         return 0 if parent.isValid() else len(self.rows)
 
     def columnCount(self, parent=QModelIndex()):
-        return 6
+        return 7
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):
         if orientation != Qt.Horizontal:
             return None
         if role == Qt.DisplayRole:
-            return [tr("File"), tr("Duration"), tr("Original"), tr("Result"), tr("Settings"), tr("Status")][section]
+            return ["", tr("File"), tr("Duration"), tr("Original"), tr("Result"), tr("Settings"), tr("Status")][section]
         if role == Qt.TextAlignmentRole and section in (COL_DURATION, COL_SIZE, COL_RESULT):
             return int(Qt.AlignRight | Qt.AlignVCenter)
+        if role == Qt.ToolTipRole and section == COL_THUMB:
+            return tr("Drag the edge of this column to make the previews bigger.")
         return None
 
     def data(self, index, role=Qt.DisplayRole):
@@ -302,17 +305,15 @@ class VideoFilterProxy(QSortFilterProxyModel):
         return True
 
 
-class FileDelegate(QStyledItemDelegate):
-    """Thumbnail, file name and sub folder in one cell."""
-
-    THUMB = QSize(48, 30)
+class ThumbnailDelegate(QStyledItemDelegate):
+    """The preview picture, as big as its column allows (the column can be dragged wider, the rows grow with it)."""
 
     def __init__(self, model, parent=None):
         super().__init__(parent)
         self.model = model
 
     def sizeHint(self, option, index):
-        return QSize(260, 44)
+        return QSize(64, 44)
 
     def paint(self, painter, option, index):
         row = index.data(Qt.UserRole + 1)
@@ -324,34 +325,67 @@ class FileDelegate(QStyledItemDelegate):
 
         painter.save()
         painter.setRenderHint(QPainter.Antialiasing)
-        rect = option.rect.adjusted(8, 0, -8, 0)
-        thumb_rect = QRectF(rect.left(), rect.center().y() - self.THUMB.height() / 2, self.THUMB.width(), self.THUMB.height())
+        area = QRectF(option.rect.adjusted(6, 4, -2, -4))
+        if area.width() <= 0 or area.height() <= 0:
+            painter.restore()
+            return
         pixmap = self.model.thumbnails.get(str(row.src))
-        palette = option.palette
-        if pixmap is not None:
-            scaled = pixmap.scaled(self.THUMB, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
-            painter.setClipRect(thumb_rect)
-            painter.drawPixmap(thumb_rect.topLeft(), scaled)
-            painter.setClipping(False)
+        if pixmap is not None and not pixmap.isNull():
+            # the whole picture, never cropped: portrait videos stay portrait
+            scaled = pixmap.scaled(area.size().toSize(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            left = area.left() + (area.width() - scaled.width()) / 2
+            top = area.top() + (area.height() - scaled.height()) / 2
+            painter.drawPixmap(int(left), int(top), scaled)
         else:
+            # a 16:9 placeholder; the palette's Mid nearly vanishes on dark rows
+            height = min(area.height(), area.width() * 9 / 16)
+            placeholder = QRectF(area.left(), area.center().y() - height / 2, area.width(), height)
             painter.setPen(Qt.NoPen)
-            painter.setBrush(QColor(128, 128, 128, 90))   # the palette's Mid nearly vanishes on dark rows
-            painter.drawRoundedRect(thumb_rect, 4, 4)
+            painter.setBrush(QColor(128, 128, 128, 90))
+            painter.drawRoundedRect(placeholder, 4, 4)
+        painter.restore()
+
+
+class FileDelegate(QStyledItemDelegate):
+    """File name and sub folder in one cell."""
+
+    def __init__(self, model, parent=None):
+        super().__init__(parent)
+        self.model = model
+
+    def sizeHint(self, option, index):
+        return QSize(200, 44)
+
+    def paint(self, painter, option, index):
+        row = index.data(Qt.UserRole + 1)
+        self.initStyleOption(option, index)
+        option.text = ""
+        option.icon = QIcon()
+        style = option.widget.style() if option.widget else QApplication.style()
+        style.drawControl(QStyle.CE_ItemViewItem, option, painter, option.widget)
+
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing)
+        palette = option.palette
 
         selected = bool(option.state & QStyle.State_Selected)
         # the group matters: the selection of an inactive window is pale, and its text colour is dark instead of white
         group = QPalette.Active if option.state & QStyle.State_Active else QPalette.Inactive
         text_color = palette.color(group, QPalette.HighlightedText if selected else QPalette.Text)
-        text_left = int(thumb_rect.right()) + 10
+        # laid out for the normal row height and centred in taller rows (big previews)
+        line_box = option.rect.adjusted(8, 0, -4, 0)
+        if line_box.height() > 46:
+            line_box.setTop(option.rect.top() + (option.rect.height() - 46) // 2)
+            line_box.setHeight(46)
         name_font = QFont(option.font)
         name_font.setWeight(QFont.DemiBold)
         painter.setFont(name_font)
         painter.setPen(text_color)
-        top = option.rect.adjusted(text_left - option.rect.left(), 5, -4, 0)
+        top = line_box.adjusted(0, 5, 0, 0)
         name = painter.fontMetrics().elidedText(row.src.name, Qt.ElideMiddle, top.width())
         folder = row.folder
         if folder:
-            painter.drawText(top.adjusted(0, 0, 0, -option.rect.height() // 2), Qt.AlignLeft | Qt.AlignVCenter, name)
+            painter.drawText(top.adjusted(0, 0, 0, -line_box.height() // 2), Qt.AlignLeft | Qt.AlignVCenter, name)
             small = QFont(option.font)
             small.setPointSizeF(option.font.pointSizeF() * 0.88)
             painter.setFont(small)
@@ -359,7 +393,7 @@ class FileDelegate(QStyledItemDelegate):
             muted.setAlpha(150)
             painter.setPen(muted)
             folder = painter.fontMetrics().elidedText(folder, Qt.ElideMiddle, top.width())
-            painter.drawText(top.adjusted(0, option.rect.height() // 2 - 5, 0, -5), Qt.AlignLeft | Qt.AlignVCenter, folder)
+            painter.drawText(top.adjusted(0, line_box.height() // 2 - 5, 0, -5), Qt.AlignLeft | Qt.AlignVCenter, folder)
         else:
             painter.drawText(top.adjusted(0, 0, 0, -5), Qt.AlignLeft | Qt.AlignVCenter, name)
         painter.restore()
@@ -417,6 +451,13 @@ class StatusDelegate(QStyledItemDelegate):
 
     def sizeHint(self, option, index):
         return QSize(190, 44)
+
+
+def path_sort_key(row):
+    """Sub folder by sub folder, then the file name: the videos of a folder stay together, its own files before
+    those of its sub folders (comparing whole path strings would put "2022 - Nizza" between "2022" and "2022/Festival")."""
+    folder = row.folder if row.root is not None else row.src.parent.as_posix()
+    return tuple(part.lower() for part in folder.split("/") if part), row.src.name.lower()
 
 
 def format_elapsed(seconds):

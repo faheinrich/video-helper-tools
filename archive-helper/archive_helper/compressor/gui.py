@@ -4,7 +4,7 @@ import shutil
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QObject, Qt, QThreadPool, QTimer, Slot
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Slot
 from PySide6.QtGui import QFontDatabase, QIntValidator, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView, QButtonGroup, QCheckBox, QComboBox, QDialog, QFileDialog, QFrame, QGridLayout,
@@ -15,9 +15,10 @@ from PySide6.QtWidgets import (
 from video_helper_core.style import STYLE, caption
 from video_helper_core.i18n import tr
 from video_helper_core.paths import settings_file
+from video_helper_core.trash import move_to_trash
 from .model import (
-    COL_DURATION, COL_FILE, COL_RESULT, COL_SETTINGS, COL_SIZE, COL_STATUS,
-    FileDelegate, StatusDelegate, VideoFilterProxy, VideoRow, VideoTableModel,
+    COL_DURATION, COL_FILE, COL_RESULT, COL_SETTINGS, COL_SIZE, COL_STATUS, COL_THUMB,
+    FileDelegate, StatusDelegate, ThumbnailDelegate, VideoFilterProxy, VideoRow, VideoTableModel,
 )
 from video_helper_core.dialogs import confirm_after_delay
 from video_helper_core.keep_awake import KeepAwake
@@ -29,7 +30,7 @@ from .utils import (
 from .lab import CompressionLabDialog
 from .options import FRAME_RATES, QUALITY_PRESETS, RENDERERS, RESOLUTIONS, X265_PRESETS
 from .widgets import CompareVideoDialog, DropLineEdit, DropOverlay, dropped_paths
-from .workers import ArchiveWorker, BlockCheckWorker, DurationProbeWorker, ResultSettingsWorker, ThumbnailRunnable, UnifiedScanWorker
+from .workers import ArchiveWorker, BlockCheckWorker, DurationProbeWorker, ResultSettingsWorker, ThumbnailLoader, UnifiedScanWorker
 
 STATUS_FILTERS = [
     ("all", None), ("planned", {"planned"}), ("running", {"running"}),
@@ -153,6 +154,9 @@ class ArchiverGUI(QWidget):
         self.setAcceptDrops(True)
 
         self.model = VideoTableModel(self)
+        # Background signals go to methods of this widget, never to lambdas (see ThumbnailRunnable).
+        self.thumbnails = ThumbnailLoader(self)
+        self.thumbnails.ready.connect(self.on_thumbnail_ready)
         self.proxy = VideoFilterProxy(self)
         self.proxy.setSourceModel(self.model)
 
@@ -193,7 +197,7 @@ class ArchiverGUI(QWidget):
         try:
             # The last column stretches to the edge, so its own width says nothing about what it needs.
             others = sum(header.sectionSize(c) if c in self.dragged_columns or c != COL_STATUS else self.FIXED_COLUMNS[c]
-                         for c in self.FIXED_COLUMNS)
+                         for c in self.FIXED_COLUMNS) + header.sectionSize(COL_THUMB)
             width = self.table.viewport().width()
             spare = width - others - self.MIN_FILE_COLUMN_WIDTH
             if COL_SETTINGS in self.dragged_columns:
@@ -208,6 +212,39 @@ class ArchiverGUI(QWidget):
                 header.resizeSection(COL_FILE, max(self.SMALLEST_FILE_COLUMN_WIDTH, width - others - settings))
         finally:
             self.fitting_columns = False
+
+    # The preview column can be dragged wider; the rows grow with it (16:9 pictures). The width is kept for next time.
+    THUMB_WIDTH, MIN_THUMB_WIDTH, MAX_THUMB_WIDTH, ROW_HEIGHT = 64, 40, 320, 46
+
+    def on_thumb_column_resized(self, column, old_size, new_size):
+        if column != COL_THUMB:
+            return
+        width = min(max(new_size, self.MIN_THUMB_WIDTH), self.MAX_THUMB_WIDTH)
+        if width != new_size:
+            self.table.horizontalHeader().resizeSection(COL_THUMB, width)   # comes back here with the clamped width
+            return
+        self.table.verticalHeader().setDefaultSectionSize(max(self.ROW_HEIGHT, round((width - 8) * 9 / 16) + 8))
+        if not self.fitting_columns:
+            self.view_save_timer.start()
+            self.fit_columns()   # the file name gives up (or gets back) the room
+
+    def save_view(self):
+        try:
+            path = settings_file()
+            settings = json.loads(path.read_text(encoding='utf-8')) if path.exists() else {}
+            settings['compressor_view'] = {'thumb_width': self.table.horizontalHeader().sectionSize(COL_THUMB)}
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(settings, indent=4), encoding='utf-8')
+        except (OSError, json.JSONDecodeError) as e:
+            print(f"Failed to save the view: {e}")
+
+    def saved_thumb_width(self):
+        try:
+            path = settings_file()
+            view = json.loads(path.read_text(encoding='utf-8')).get('compressor_view', {}) if path.exists() else {}
+            return int(view.get('thumb_width', self.THUMB_WIDTH))
+        except (OSError, ValueError, TypeError, AttributeError):
+            return self.THUMB_WIDTH
 
     def remember_dragged_column(self, column, old_size, new_size):
         if not self.fitting_columns and not self.table.horizontalHeader().isSectionHidden(column):
@@ -486,9 +523,18 @@ class ArchiverGUI(QWidget):
             header.setSectionResizeMode(col, QHeaderView.Interactive)
             header.resizeSection(col, width)
         header.setSectionResizeMode(COL_SETTINGS, QHeaderView.Interactive)
+        header.setSectionResizeMode(COL_THUMB, QHeaderView.Interactive)
+        self.view_save_timer = QTimer(self, singleShot=True, interval=500)
+        self.view_save_timer.timeout.connect(self.save_view)
+        header.sectionResized.connect(self.on_thumb_column_resized)
+        self.fitting_columns = True   # the saved width is not a new drag
+        header.resizeSection(COL_THUMB, self.saved_thumb_width())
+        self.on_thumb_column_resized(COL_THUMB, 0, header.sectionSize(COL_THUMB))
+        self.fitting_columns = False
         header.sectionResized.connect(self.remember_dragged_column)
         self.column_watcher = ResizeWatcher(self.table.viewport(), self.fit_columns)
         header.setHighlightSections(False)
+        self.table.setItemDelegateForColumn(COL_THUMB, ThumbnailDelegate(self.model, self.table))
         self.table.setItemDelegateForColumn(COL_FILE, FileDelegate(self.model, self.table))
         self.table.setItemDelegateForColumn(COL_STATUS, StatusDelegate(self.table))
         self.table.selectionModel().selectionChanged.connect(self.update_detail_bar)
@@ -789,6 +835,7 @@ class ArchiverGUI(QWidget):
 
     def shutdown(self):
         self.scan_timer.stop()
+        self.thumbnails.shutdown()
         self.keep_awake.stop()
         for worker in (self.worker, self.scan_worker, self.duration_worker, self.settings_worker, self.block_worker):
             if worker is not None and worker.isRunning():
@@ -909,11 +956,11 @@ class ArchiverGUI(QWidget):
         self.update_run_enabled()
         self.refresh_summary()
 
-        # Background signals go to methods of this widget, never to lambdas (see ThumbnailRunnable).
-        for row in rows:
-            runnable = ThumbnailRunnable(row.src)
-            runnable.signals.finished.connect(self.on_thumbnail_ready)
-            QThreadPool.globalInstance().start(runnable)
+        # In table order, so the rows on screen get their pictures first.
+        order = [self.proxy.mapToSource(self.proxy.index(r, 0)).row() for r in range(self.proxy.rowCount())]
+        seen = set(order)
+        order += [i for i in range(len(rows)) if i not in seen]   # filtered out: last
+        self.thumbnails.load([rows[i].src for i in order])
         self.duration_worker = DurationProbeWorker([row.src for row in rows])
         self.duration_worker.duration_found.connect(self.on_duration_found)
         self.duration_worker.finished.connect(self.request_summary)
@@ -1004,7 +1051,7 @@ class ArchiverGUI(QWidget):
         if replacing and not confirm_after_delay(
                 self, tr("Source = target!"),
                 tr("{count} videos have the same source and target file. If you continue, these original files are "
-                   "REPLACED by their compressed versions and the originals are gone.\n\nCancel and set a result "
+                   "REPLACED by their compressed versions and the originals go to the trash.\n\nCancel and set a result "
                    "postfix or another target folder to keep them.", count=len(replacing)),
                 tr("Replace originals")):
             return
@@ -1344,8 +1391,8 @@ class ArchiverGUI(QWidget):
         for text, action in (
             (tr("Replace original with result…"), "overwrite"),
             (tr("Swap original and result…"), "swap"),
-            (tr("Delete original…"), "del_orig"),
-            (tr("Delete result…"), "del_comp"),
+            (tr("Move original to trash…"), "del_orig"),
+            (tr("Move result to trash…"), "del_comp"),
         ):
             count = sum(self.file_action_applies(action, row) for row in rows)
             label = text if len(rows) == 1 else f"{text} ({count})"
@@ -1474,7 +1521,11 @@ class ArchiverGUI(QWidget):
 
     def compare(self, row):
         has_result = row.dst.exists() and row.out_size is not None
-        CompareVideoDialog(row.src, row.dst if has_result else None, self).exec()
+        self.thumbnails.pause()   # the viewer needs the disk and the CPU for smooth playback
+        try:
+            CompareVideoDialog(row.src, row.dst if has_result else None, self).exec()
+        finally:
+            self.thumbnails.resume()
 
     def show_log(self, row):
         self.log_dialog = LogDialog(row, self)
@@ -1488,18 +1539,18 @@ class ArchiverGUI(QWidget):
         if len(rows) == 1:
             name = rows[0].src.name if action != "del_comp" else rows[0].dst.name
             title, text = {
-                "overwrite": (tr("Overwrite"), tr("Really replace the original '{name}' with the compressed version?", name=name)),
+                "overwrite": (tr("Overwrite"), tr("Replace the original '{name}' with the compressed version? The original goes to the trash.", name=name)),
                 "swap": (tr("Swap"), tr("Really swap the original and the compressed version?")),
-                "del_orig": (tr("Delete"), tr("Really delete the original '{name}'?\nThis cannot be undone!", name=name)),
-                "del_comp": (tr("Delete"), tr("Really delete the compressed version '{name}'?\nThis cannot be undone!", name=name)),
+                "del_orig": (tr("Move to trash"), tr("Move the original '{name}' to the trash?", name=name)),
+                "del_comp": (tr("Move to trash"), tr("Move the compressed version '{name}' to the trash?", name=name)),
             }[action]
         else:
             count = len(rows)
             title, text = {
-                "overwrite": (tr("Overwrite"), tr("Really replace {count} originals with their compressed versions?", count=count)),
+                "overwrite": (tr("Overwrite"), tr("Replace {count} originals with their compressed versions? The originals go to the trash.", count=count)),
                 "swap": (tr("Swap"), tr("Really swap original and compressed version of {count} videos?", count=count)),
-                "del_orig": (tr("Delete"), tr("Really delete {count} originals?\nThis cannot be undone!", count=count)),
-                "del_comp": (tr("Delete"), tr("Really delete {count} compressed versions?\nThis cannot be undone!", count=count)),
+                "del_orig": (tr("Move to trash"), tr("Move {count} originals to the trash?", count=count)),
+                "del_comp": (tr("Move to trash"), tr("Move {count} compressed versions to the trash?", count=count)),
             }[action]
         if QMessageBox.question(self, title, text, QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
             return
@@ -1522,7 +1573,7 @@ class ArchiverGUI(QWidget):
             if not (new_orig_path.exists() and new_orig_path.samefile(comp_path)):   # result already next to it
                 shutil.copy2(comp_path, new_orig_path)
             if new_orig_path != orig_path:
-                orig_path.unlink()
+                move_to_trash(orig_path)
             self.model.update(row.src, note=tr("original replaced"))
         elif action == "swap":
             temp_path = orig_path.with_name(orig_path.name + ".tmp")
@@ -1531,11 +1582,11 @@ class ArchiverGUI(QWidget):
             shutil.move(temp_path, comp_path)
             self.model.update(row.src, note=tr("swapped"))
         elif action == "del_orig":
-            orig_path.unlink()
-            self.model.update(row.src, note=tr("original deleted"))
+            move_to_trash(orig_path)
+            self.model.update(row.src, note=tr("original in the trash"))
         elif action == "del_comp":
-            comp_path.unlink()
-            self.model.update(row.src, note=tr("result deleted"), out_size=None,
+            move_to_trash(comp_path)
+            self.model.update(row.src, note=tr("result in the trash"), out_size=None,
                               status="planned" if orig_path.exists() else row.status)
 
     # ------------------------------------------------------------------ files

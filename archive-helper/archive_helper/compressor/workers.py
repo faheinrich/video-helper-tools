@@ -8,10 +8,11 @@ import re
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from PySide6.QtCore import QThread, Signal, QRunnable, QObject
+from PySide6.QtCore import QObject, QRunnable, QThread, QThreadPool, Signal
 from PySide6.QtGui import QImage
 
 from video_helper_core.i18n import tr
+from video_helper_core.trash import move_to_trash
 from .utils import (
     DEFAULT_POSTFIX, EXIFTOOL_CONFIG, block_sample_starts, blockiness_command, is_blocky, parse_blockiness, DurationCache, partial_path, path_key, same_file, copy_file_times, format_size, generate_thumbnail, get_thumbnail_path, get_video_info, is_photos_compatible,
     get_audio_streams, get_hdr_color, parse_ffmpeg_time, read_compression_settings, settings_tag_argument,
@@ -478,6 +479,9 @@ class ArchiveWorker(QThread):
             data_dict = {'src_size': src_size, 'dst_size': src_size, 'diff_size': 0, 'ratio': 100.0, 'settings': None}
             return tr("✅ KEPT ORIGINAL: {name} | the compressed file was not smaller", name=src_path.name), data_dict
         try:
+            if dst_path.exists():
+                # the original (when the result replaces it) or an earlier result: to the trash, not gone for good
+                move_to_trash(dst_path)
             os.replace(partial, dst_path)   # atomic: the final name never holds a half-written file
         except OSError as e:
             partial.unlink(missing_ok=True)
@@ -647,19 +651,33 @@ class ThumbnailRunnable(QRunnable):
     a lambda is invoked via this short-lived signals object, which the pool may already
     have freed when the queued call is delivered (crash in Shiboken::cppPointer)."""
 
-    def __init__(self, video_path):
+    def __init__(self, video_path, cancelled=None, allowed=None):
         super().__init__()
         self.video_path = video_path
+        self.cancelled = cancelled or threading.Event()
+        self.allowed = allowed  # cleared while new thumbnails must wait (a video plays in the viewer)
         self.signals = ThumbnailSignals()
 
+    def wait_until_allowed(self):
+        while self.allowed is not None and not self.allowed.wait(0.1):
+            if self.cancelled.is_set():
+                return False
+        return not self.cancelled.is_set()
+
     def run(self):
+        if self.cancelled.is_set():
+            return
         image = None
         try:
             thumb_path = get_thumbnail_path(self.video_path)
             if not thumb_path.exists():
-                generate_thumbnail(self.video_path, thumb_path)
+                if not self.wait_until_allowed():
+                    return
+                generate_thumbnail(self.video_path, thumb_path, self.cancelled)
             else:
                 os.utime(thumb_path)  # used recently: keeps it out of prune_thumbnails
+            if self.cancelled.is_set():
+                return
             if thumb_path.exists():
                 image = QImage(str(thumb_path))
         except Exception as e:
@@ -668,6 +686,52 @@ class ThumbnailRunnable(QRunnable):
             self.signals.finished.emit(str(self.video_path), image)
         except RuntimeError:  # the window was closed while this job was still running
             pass
+
+
+class ThumbnailLoader(QObject):
+    """Makes the list's thumbnails in a pool of its own, a few at a time. A new folder or closing
+    the window drops the waiting ones and stops running ffmpeg calls at once (the global pool
+    made the app wait for every thumbnail of the folder before it quit), and while a video plays
+    in the viewer no new ones start, so playback gets the disk and the CPU."""
+    PARALLEL = 3
+    ready = Signal(str, object)  # video path, QImage or None
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.pool = QThreadPool(self)
+        self.pool.setMaxThreadCount(self.PARALLEL)
+        self.cancelled = threading.Event()
+        self.allowed = threading.Event()
+        self.allowed.set()
+
+    def load(self, paths):
+        self.cancel()
+        self.cancelled = threading.Event()
+        for path in paths:
+            runnable = ThumbnailRunnable(path, self.cancelled, self.allowed)
+            runnable.signals.finished.connect(self.on_finished)
+            self.pool.start(runnable)
+
+    def on_finished(self, path, image):
+        if not self.cancelled.is_set():
+            self.ready.emit(path, image)
+
+    def cancel(self):
+        self.cancelled.set()
+        self.pool.clear()
+
+    def pause(self):
+        self.allowed.clear()
+
+    def resume(self):
+        self.allowed.set()
+
+    def is_busy(self):
+        return self.pool.activeThreadCount() > 0
+
+    def shutdown(self, timeout_ms=5000):
+        self.cancel()
+        return self.pool.waitForDone(timeout_ms)
 
 
 class DurationProbeWorker(QThread):

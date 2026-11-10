@@ -217,3 +217,145 @@ def test_video_view_zooms_with_the_wheel(qapp):
     for delta in (120, -120):
         view.wheelEvent(QWheelEvent(QPointF(5, 5), QPointF(5, 5), QPoint(), QPoint(0, delta), Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False))
     assert len(seen) == 2 and seen[0] > 1 and seen[1] == pytest.approx(1.0)
+
+
+def test_slider_view_puts_the_videos_on_top_of_each_other_with_a_movable_dividing_line(qapp):
+    from PySide6.QtCore import QPoint
+    from PySide6.QtTest import QTest
+    from archive_helper.compressor.widgets import CompareVideoDialog
+
+    dialog = CompareVideoDialog(EXAMPLE_VIDEOS[0], EXAMPLE_VIDEOS[1])
+    dialog.setWindowState(Qt.WindowNoState)
+    dialog.resize(1000, 600)
+    dialog.show()
+    spin(300)
+    stage = dialog.stage
+    assert stage.mode == "side" and dialog.mode_buttons["side"].isChecked()
+    assert [b.text() for b in dialog.mode_buttons.values()] == ["◫ Nebeneinander", "◧ Schieberegler", "⇄ Wechseln"]
+    assert dialog.view_orig.geometry().right() < dialog.view_comp.geometry().left()   # side by side
+
+    dialog.mode_buttons["slider"].click()
+    assert stage.mode == "slider" and dialog.mode_buttons["slider"].isChecked()
+    # one view shows both, so they repaint together (two stacked views: the covered one froze on macOS)
+    assert dialog.view_orig.geometry() == stage.rect() and dialog.view_comp.isHidden()
+    assert dialog.player_comp.videoOutput() is dialog.overlay_item
+    assert dialog.overlay_item.scene() is dialog.view_orig.scene
+    half = stage.width() // 2
+
+    def clip_left():   # where the compressed version starts, on screen
+        view = dialog.view_orig
+        return view.mapFromScene(view.clip_item.rect().topLeft()).x() + view.viewport().x()
+
+    assert abs(clip_left() - half) <= 1 and stage.handle.isVisible()
+    assert all(tag.isVisible() for tag in stage.tags)
+
+    QTest.mousePress(stage.handle, Qt.LeftButton, pos=QPoint(stage.handle.width() // 2 - 100, 50))   # grab and pull left
+    assert abs(stage.split_x() - (half - 100)) <= 2
+    stage.handle.moved.emit(stage.width() // 4)
+    assert abs(stage.split - 0.25) < 0.01
+    assert abs(clip_left() - stage.split_x()) <= 1
+    assert abs(stage.handle.geometry().center().x() - stage.split_x()) <= 1
+    stage.handle.moved.emit(-50)   # dragged past the edge: the whole picture is the compressed version
+    assert stage.split == 0.0
+    dialog.mode_buttons["side"].click()   # back: each video in its own view again
+    assert dialog.player_comp.videoOutput() is dialog.view_comp.video_item and dialog.view_comp.isVisible()
+    assert dialog.view_orig.clip_item is None
+    dialog.mode_buttons["slider"].click()
+    dialog.reject()
+
+    again = CompareVideoDialog(EXAMPLE_VIDEOS[0], EXAMPLE_VIDEOS[1])   # the choice is kept
+    assert again.stage.overlay
+    again.mode_buttons["side"].click()
+    again.reject()
+    assert not CompareVideoDialog(EXAMPLE_VIDEOS[0], EXAMPLE_VIDEOS[1]).stage.overlay
+
+
+def test_no_slider_view_for_a_single_video(qapp):
+    from archive_helper.compressor.widgets import CompareVideoDialog
+
+    dialog = CompareVideoDialog(EXAMPLE_VIDEOS[0])
+    assert all(button.isHidden() for button in dialog.mode_buttons.values()) and not dialog.stage.overlay
+    dialog.reject()
+
+
+@requires_ffmpeg
+def test_zooming_and_panning_keep_the_slider_view_aligned(qapp, tmp_path):
+    import subprocess
+    from PySide6.QtCore import QPoint
+    from PySide6.QtGui import QWheelEvent
+    from archive_helper.compressor.widgets import CompareVideoDialog
+
+    # like a result with limited resolution: same picture, half the pixels
+    smaller = tmp_path / "smaller.mp4"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(EXAMPLE_VIDEOS[0]), "-t", "3", "-vf", "scale=360:240",
+                    "-an", str(smaller)], check=True)
+    dialog = CompareVideoDialog(EXAMPLE_VIDEOS[0], smaller)
+    dialog.setWindowState(Qt.WindowNoState)
+    dialog.resize(1000, 600)
+    dialog.show()
+    dialog.set_view_mode("slider")
+    spin(1500)
+    orig, comp = dialog.view_orig, dialog.view_comp
+
+    def wheel(view, steps):
+        for _ in range(abs(steps)):
+            pos = QPointF(view.viewport().width() / 2, view.viewport().height() / 2)
+            event = QWheelEvent(pos, view.mapToGlobal(pos.toPoint()), QPoint(), QPoint(0, 120 if steps > 0 else -120),
+                                Qt.NoButton, Qt.NoModifier, Qt.ScrollUpdate, False)
+            view.wheelEvent(event)
+
+    def aligned():
+        # the compressed picture covers exactly the original's, and its visible part starts at the dividing line
+        overlay = dialog.overlay_item
+        same = orig.video_item.sceneBoundingRect() == overlay.sceneBoundingRect()
+        line = orig.mapFromScene(orig.clip_item.rect().topLeft()).x() + orig.viewport().x()
+        return same and abs(line - dialog.stage.split_x()) <= 1
+
+    assert aligned()
+    wheel(orig, 4)   # zoom in …
+    assert orig.zoom_factor > 1.5 and aligned()
+    orig.horizontalScrollBar().setValue(orig.horizontalScrollBar().value() + 40)   # … pan …
+    assert aligned()
+    orig.rotate_by(90)   # … turn …
+    assert aligned()
+    wheel(orig, -8)   # … and zoom out below the starting size; the hidden view follows for side by side
+    assert abs(orig.zoom_factor - comp.zoom_factor) < 1e-6 and orig.zoom_factor < 1 and aligned()
+    dialog.reject()
+
+
+def test_flip_mode_changes_between_original_and_result_every_two_seconds(qapp):
+    from archive_helper.compressor.widgets import ORIGINAL_COLOR, RESULT_COLOR, CompareVideoDialog
+
+    dialog = CompareVideoDialog(EXAMPLE_VIDEOS[0], EXAMPLE_VIDEOS[1])
+    dialog.setWindowState(Qt.WindowNoState)
+    dialog.resize(1000, 600)
+    dialog.show()
+    spin(300)
+    view, stage = dialog.view_orig, dialog.stage
+
+    def visible_part_of_result():
+        clip = view.clip_item.rect()
+        shown = view.mapToScene(view.viewport().rect()).boundingRect()
+        return max(0.0, min(clip.right(), shown.right()) - max(clip.left(), shown.left())) / shown.width()
+
+    dialog.mode_buttons["flip"].click()
+    assert dialog.mode_buttons["flip"].isChecked() and dialog.flip_timer.isActive()
+    assert dialog.flip_timer.interval() == 2000
+    assert dialog.player_comp.videoOutput() is dialog.overlay_item   # both keep playing: a flip is instant
+    assert visible_part_of_result() == 0 and not stage.handle.isVisible()
+    assert stage.tags[0].isVisible() and not stage.tags[1].isVisible()   # "Original"
+    assert view.border_color == ORIGINAL_COLOR and ORIGINAL_COLOR.name() in stage.tags[0].styleSheet()   # blue
+
+    dialog.on_flip()
+    assert visible_part_of_result() == 1.0
+    assert view.border_color == RESULT_COLOR and RESULT_COLOR.name() in stage.tags[1].styleSheet()   # red
+    assert stage.tags[1].isVisible() and not stage.tags[0].isVisible() and stage.tags[1].x() == 10   # same corner
+    dialog.pause()
+    assert dialog.flip_timer.isActive()   # a still frame can be compared too
+    dialog.on_flip()
+    assert visible_part_of_result() == 0
+
+    view.viewport().grab()   # the frame is drawn without errors
+    dialog.mode_buttons["slider"].click()
+    assert not dialog.flip_timer.isActive() and stage.handle.isVisible() and view.border_color is None
+    dialog.reject()

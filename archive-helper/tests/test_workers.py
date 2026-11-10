@@ -1,10 +1,12 @@
 """Runs the worker threads' run() directly (synchronously), so their logic is checked and measured by coverage."""
+import os
 import shutil
 import subprocess
 import threading
 import time
 
 import pytest
+from pathlib import Path
 
 from conftest import requires_ffmpeg
 
@@ -271,6 +273,90 @@ def test_thumbnail_runnable_survives_a_broken_video(qapp, tmp_path):
     received = collect(job.signals.finished)
     job.run()
     assert len(received) == 1
+
+
+def slow_thumbnails(monkeypatch, started):
+    """Replaces ffmpeg with a job that runs until it is cancelled and records which videos it began."""
+    from archive_helper.compressor import workers
+
+    def fake(video_path, output_path, cancelled=None):
+        started.append(Path(video_path).name)
+        while not cancelled.wait(0.01):
+            pass
+        return False
+
+    monkeypatch.setattr(workers, "generate_thumbnail", fake)
+
+
+def test_closing_does_not_wait_for_the_thumbnails_of_a_large_folder(qapp, tmp_path, monkeypatch):
+    # Regression: the jobs sat in the global pool, and quitting waited until every thumbnail
+    # of the folder was made; the process stayed alive after the window had closed.
+    from archive_helper.compressor.workers import ThumbnailLoader
+
+    started = []
+    slow_thumbnails(monkeypatch, started)
+    loader = ThumbnailLoader()
+    loader.load([touch(tmp_path / f"v{i:03d}.mp4", 10) for i in range(200)])
+    deadline = time.monotonic() + 5
+    while len(started) < loader.PARALLEL and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert len(started) == loader.PARALLEL   # only a few at a time
+
+    begin = time.monotonic()
+    assert loader.shutdown(timeout_ms=3000)
+    assert time.monotonic() - begin < 1
+    assert len(started) == loader.PARALLEL   # the waiting ones never ran
+
+
+def test_a_new_folder_drops_the_thumbnails_of_the_old_one(qapp, tmp_path, monkeypatch):
+    from archive_helper.compressor.workers import ThumbnailLoader
+
+    started = []
+    slow_thumbnails(monkeypatch, started)
+    loader = ThumbnailLoader()
+    loader.load([touch(tmp_path / f"old{i}.mp4", 10) for i in range(20)])
+    loader.load([touch(tmp_path / f"new{i}.mp4", 10) for i in range(2)])
+    deadline = time.monotonic() + 5
+    while not {"new0.mp4", "new1.mp4"} <= set(started) and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert {"new0.mp4", "new1.mp4"} <= set(started)
+    assert sum(name.startswith("old") for name in started) <= loader.PARALLEL
+    assert loader.shutdown(timeout_ms=3000)
+
+
+def test_no_new_thumbnails_start_while_the_viewer_plays(qapp, tmp_path, monkeypatch):
+    from archive_helper.compressor.workers import ThumbnailLoader
+
+    started = []
+    slow_thumbnails(monkeypatch, started)
+    loader = ThumbnailLoader()
+    loader.pause()
+    loader.load([touch(tmp_path / f"v{i}.mp4", 10) for i in range(5)])
+    time.sleep(0.3)
+    assert started == []
+    loader.resume()
+    deadline = time.monotonic() + 5
+    while not started and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert started
+    loader.pause()
+    assert loader.shutdown(timeout_ms=3000)   # also while paused
+
+
+@requires_ffmpeg
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs a named pipe")
+def test_a_cancelled_thumbnail_stops_ffmpeg_and_leaves_no_file(tmp_path):
+    from archive_helper.compressor.utils import generate_thumbnail
+
+    stuck = tmp_path / "stuck.mp4"
+    os.mkfifo(stuck)   # ffmpeg waits forever for data, like a video on a very slow disk
+    cancelled = threading.Event()
+    threading.Timer(0.3, cancelled.set).start()
+    thumb = tmp_path / "t.jpg"
+    begin = time.monotonic()
+    assert not generate_thumbnail(stuck, thumb, cancelled)
+    assert time.monotonic() - begin < 3
+    assert not thumb.exists()
 
 
 @requires_ffmpeg

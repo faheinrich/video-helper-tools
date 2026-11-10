@@ -2,19 +2,24 @@ from pathlib import Path
 
 from PySide6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QDialog, QSlider,
-    QGraphicsView, QGraphicsScene, QMessageBox, QSizePolicy, QStyle, QStyleOptionFrame, QWidget
+    QButtonGroup, QGraphicsItem, QGraphicsRectItem, QGraphicsView, QGraphicsScene, QMessageBox, QSizePolicy, QStyle, QStyleOptionFrame, QWidget
 )
+import json
 from PySide6.QtCore import Qt, QPoint, QPointF, QRectF, QUrl, QSizeF, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QKeySequence, QPainter, QPalette, QPen, QShortcut
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PySide6.QtMultimediaWidgets import QGraphicsVideoItem
 
 from video_helper_core.i18n import tr
+from video_helper_core.paths import settings_file
 from .utils import describe_streams, get_display_rotation, get_resolution_and_fps
 
 # The compressed file decodes faster than e.g. a 4K original, so the players drift apart;
 # the original is the master clock and the compressed player is pulled back beyond this.
 SYNC_TOLERANCE_MS = 120
+FLIP_SECONDS = 2   # flip mode: how long each of the two is shown
+ORIGINAL_COLOR = QColor(47, 128, 237)   # blue: frame and label of the original in flip mode
+RESULT_COLOR = QColor(229, 72, 77)      # red: the compressed version
 READY_STATUSES = (QMediaPlayer.MediaStatus.LoadedMedia, QMediaPlayer.MediaStatus.BufferedMedia,
                   QMediaPlayer.MediaStatus.BufferingMedia)
 
@@ -201,6 +206,72 @@ class ZoomableVideoView(QGraphicsView):
         
         self.zoom_factor = 1.0
         self.zoom_step = 1.15
+        # slider view: a second video drawn over this one, cut off left of a dividing line (see show_overlay)
+        self.overlay_item = self.clip_item = None
+        self.split_x = 0
+        self.border_color = None   # flip mode: a coloured frame around the picture says which video is shown
+
+    def show_overlay(self, item):
+        """Draws `item` (the other video) on top of this one, visible only right of split_x; None ends it.
+        One view showing both keeps them exactly aligned when zooming, panning and rotating, and lets them repaint
+        together (two stacked video widgets: macOS did not repaint the covered one, so it froze)."""
+        if self.clip_item is not None:
+            self.scene.removeItem(self.clip_item)
+            self.clip_item = None
+        self.overlay_item = item
+        if item is not None:
+            self.clip_item = QGraphicsRectItem()
+            self.clip_item.setPen(Qt.NoPen)
+            self.clip_item.setFlag(QGraphicsItem.ItemClipsChildrenToShape)
+            self.scene.addItem(self.clip_item)
+            item.setAspectRatioMode(Qt.IgnoreAspectRatio)
+            item.setParentItem(self.clip_item)
+            self.sync_overlay()
+
+    def set_split_x(self, x):
+        self.split_x = x
+        self.update_clip()
+
+    def sync_overlay(self):
+        """The overlay takes this video's place and size: the result may have fewer pixels, the picture is the same."""
+        if self.overlay_item is None:
+            return
+        item = self.overlay_item
+        item.setSize(self.video_item.size())
+        item.setTransformOriginPoint(self.video_item.transformOriginPoint())
+        item.setRotation(self.video_item.rotation())
+        item.setPos(self.video_item.pos())
+        self.update_clip()
+
+    def update_clip(self):
+        if self.clip_item is None:
+            return
+        left = self.mapToScene(QPoint(int(self.split_x), 0)).x()
+        area = self.frame_rect().adjusted(-100000, -100000, 100000, 100000)
+        self.clip_item.setRect(QRectF(left, area.top(), max(0.0, area.right() - left), area.height()))
+
+    def set_border(self, color):
+        self.border_color = color
+        self.viewport().update()
+
+    def drawForeground(self, painter, rect):
+        super().drawForeground(painter, rect)
+        if self.border_color is None or self.video_item.size().isEmpty():
+            return
+        # around the picture, in screen pixels (not zoomed); at the edge of the view when zoomed in further
+        picture = self.mapFromScene(self.frame_rect()).boundingRect()
+        width = 6
+        box = QRectF(picture).intersected(QRectF(self.viewport().rect()).adjusted(width / 2, width / 2, -width / 2, -width / 2))
+        painter.save()
+        painter.resetTransform()
+        painter.setPen(QPen(self.border_color, width))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawRect(box)
+        painter.restore()
+
+    def scrollContentsBy(self, dx, dy):
+        super().scrollContentsBy(dx, dy)
+        self.update_clip()   # the line stays where it is on screen
 
     def videoSizeChanged(self, size):
         # nativeSize is the stored (unrotated) size, but Qt draws the frame rotated by the
@@ -211,6 +282,7 @@ class ZoomableVideoView(QGraphicsView):
         self.setSceneRect(self.frame_rect())
         self.fitInView(self.frame_rect(), Qt.KeepAspectRatio)
         self.zoom_factor = 1.0
+        self.sync_overlay()
 
     def frame_rect(self):
         # Not boundingRect(): for rotated clips Qt computes it from the unrotated native size, while the frame is
@@ -222,6 +294,7 @@ class ZoomableVideoView(QGraphicsView):
         super().resizeEvent(event)
         if abs(self.zoom_factor - 1.0) < 0.001 and not self.video_item.size().isEmpty():
             self.fitInView(self.frame_rect(), Qt.KeepAspectRatio)
+        self.update_clip()
 
     def wheelEvent(self, event):
         if event.angleDelta().y() > 0:
@@ -230,6 +303,7 @@ class ZoomableVideoView(QGraphicsView):
         else:
             self.scale(1.0 / self.zoom_step, 1.0 / self.zoom_step)
             self.zoom_factor /= self.zoom_step
+        self.update_clip()
         self.zoom_changed.emit(self.zoom_factor)
 
     def set_zoom(self, factor):
@@ -237,6 +311,7 @@ class ZoomableVideoView(QGraphicsView):
             rel_scale = factor / self.zoom_factor
             self.scale(rel_scale, rel_scale)
             self.zoom_factor = factor
+            self.update_clip()
 
     def rotate_by(self, degrees=90):
         """Turns the picture and fits the turned picture into the view again."""
@@ -244,13 +319,176 @@ class ZoomableVideoView(QGraphicsView):
         self.video_item.setTransformOriginPoint(rect.center())
         self.video_item.setRotation((self.video_item.rotation() + degrees) % 360)
         self.setSceneRect(self.frame_rect())
+        self.sync_overlay()
         self.reset_view()
 
     def reset_view(self):
         self.setSceneRect(self.frame_rect())
         self.fitInView(self.frame_rect(), Qt.KeepAspectRatio)
         self.zoom_factor = 1.0
+        self.update_clip()
         self.zoom_changed.emit(1.0)
+
+
+class SplitHandle(QWidget):
+    """The dividing line of the slider view; drag it left or right."""
+    moved = Signal(int)   # x in the parent's coordinates
+    WIDTH = 24
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setCursor(Qt.SplitHCursor)
+        self.setToolTip(tr("Drag to move the dividing line"))
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        middle = self.width() / 2
+        painter.setPen(QPen(QColor(0, 0, 0, 110), 4))
+        painter.drawLine(QPointF(middle, 0), QPointF(middle, self.height()))
+        painter.setPen(QPen(QColor(255, 255, 255), 2))
+        painter.drawLine(QPointF(middle, 0), QPointF(middle, self.height()))
+        grip = QRectF(middle - 10, self.height() / 2 - 10, 20, 20)
+        painter.setPen(QPen(QColor(0, 0, 0, 110), 1))
+        painter.setBrush(QColor(255, 255, 255))
+        painter.drawEllipse(grip)
+        painter.setPen(QPen(QColor(60, 60, 60), 1.5))
+        y = grip.center().y()
+        for direction in (-1, 1):   # ‹ ›
+            tip = grip.center().x() + direction * 6
+            painter.drawLine(QPointF(tip, y), QPointF(tip - direction * 3, y - 3))
+            painter.drawLine(QPointF(tip, y), QPointF(tip - direction * 3, y + 3))
+
+    def mousePressEvent(self, event):
+        self.moved.emit(int(self.mapToParent(event.position().toPoint()).x()))
+
+    def mouseMoveEvent(self, event):
+        if event.buttons() & Qt.LeftButton:
+            self.moved.emit(int(self.mapToParent(event.position().toPoint()).x()))
+
+
+class CompareStage(QWidget):
+    """The two views side by side, or (slider view) on top of each other: left of the dividing line the original,
+    right of it the compressed version, so the same spot of both can be compared without moving the eyes."""
+    GAP = 8
+
+    def __init__(self, view_orig, view_comp=None, parent=None):
+        super().__init__(parent)
+        self.view_orig, self.view_comp = view_orig, view_comp
+        self.mode, self.split = "side", 0.5
+        self.showing_comp = False   # "flip": which of the two is shown right now
+        for view in (view_orig, view_comp):
+            if view is not None:
+                view.setParent(self)
+        self.handle = self.tags = None
+        if view_comp is not None:
+            self.tags = [self.tag(tr("Original")), self.tag(tr("Compressed"))]
+            self.handle = SplitHandle(self)
+            self.handle.moved.connect(lambda x: self.set_split(x / max(1, self.width())))
+        self.relayout()
+
+    TAG_STYLE = "background: {background}; color: white; padding: 3px 8px; border-radius: 4px;"
+
+    def tag(self, text):
+        label = QLabel(text, self)
+        label.setStyleSheet(self.TAG_STYLE.format(background="rgba(0, 0, 0, 0.55)"))
+        label.setAttribute(Qt.WA_TransparentForMouseEvents)
+        label.adjustSize()
+        label.hide()
+        return label
+
+    MODES = ("side", "slider", "flip")
+
+    @property
+    def overlay(self):
+        """Slider and flip both show the two videos in one view."""
+        return self.mode != "side"
+
+    def set_mode(self, mode):
+        self.mode = mode if mode in self.MODES and self.view_comp is not None else "side"
+        self.showing_comp = False
+        self.relayout()
+
+    def flip(self):
+        """Flip mode: from the original to the compressed version and back."""
+        self.showing_comp = not self.showing_comp
+        self.relayout()
+
+    def set_split(self, fraction):
+        self.split = min(1.0, max(0.0, fraction))
+        self.relayout()
+
+    def split_x(self):
+        return round(self.width() * self.split)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.relayout()
+
+    def relayout(self):
+        rect = self.rect()
+        if self.view_comp is None:
+            self.view_orig.setGeometry(rect)
+            return
+        if self.overlay:
+            # one view shows both videos (see ZoomableVideoView.show_overlay); the other one waits hidden
+            self.view_comp.hide()
+            self.view_orig.setGeometry(rect)
+            left, right = self.tags
+            if self.mode == "flip":
+                # the dividing line far off one side: all original, or all compressed
+                self.view_orig.set_split_x(-10 ** 6 if self.showing_comp else 10 ** 6)
+                self.handle.hide()
+                color = RESULT_COLOR if self.showing_comp else ORIGINAL_COLOR
+                self.view_orig.set_border(color)
+                shown, hidden = (right, left) if self.showing_comp else (left, right)
+                shown.setStyleSheet(self.TAG_STYLE.format(background=color.name()))
+                shown.move(10, 10)   # in the same corner, so the eye does not have to look for it
+                shown.show()
+                shown.raise_()
+                hidden.hide()
+                return
+            self.view_orig.set_border(None)
+            for tag in self.tags:
+                tag.setStyleSheet(self.TAG_STYLE.format(background="rgba(0, 0, 0, 0.55)"))
+            x = self.split_x()
+            self.view_orig.set_split_x(x - self.view_orig.viewport().x())
+            self.handle.setGeometry(x - SplitHandle.WIDTH // 2, 0, SplitHandle.WIDTH, rect.height())
+            self.handle.show()
+            self.handle.raise_()
+            left.move(10, 10)
+            right.move(rect.width() - right.width() - 10, 10)
+            for tag in self.tags:
+                tag.show()
+                tag.raise_()
+        else:
+            half = max(0, (rect.width() - self.GAP) // 2)
+            self.view_orig.setGeometry(0, 0, half, rect.height())
+            self.view_comp.setGeometry(rect.width() - half, 0, half, rect.height())
+            self.view_comp.show()
+            self.view_orig.set_border(None)
+            self.handle.hide()
+            for tag in self.tags:
+                tag.hide()
+
+
+def saved_compare_mode():
+    try:
+        path = settings_file()
+        return json.loads(path.read_text(encoding="utf-8")).get("compare_view", {}).get("mode") if path.exists() else None
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
+def save_compare_mode(mode):
+    try:
+        path = settings_file()
+        settings = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        settings["compare_view"] = {"mode": mode}
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(settings, indent=4), encoding="utf-8")
+    except (OSError, ValueError) as e:
+        print(f"Failed to save the compare view: {e}")
 
 
 class CompareVideoDialog(QDialog):
@@ -261,7 +499,7 @@ class CompareVideoDialog(QDialog):
         self.has_comp = comp_path is not None
         self.paths = {"orig": orig_path, "comp": comp_path}
         self.reported_errors = set()
-        self.player_comp = self.view_comp = None
+        self.player_comp = self.view_comp = self.overlay_item = None
         self.setWindowTitle(tr("Compare: {name}", name=orig_path.name) if self.has_comp else tr("Original: {name}", name=orig_path.name))
         
         self.setWindowState(Qt.WindowMaximized)
@@ -269,7 +507,7 @@ class CompareVideoDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
         
-        video_layout = QHBoxLayout()
+        header_layout = QHBoxLayout()
         
         # Fetch Metadata
         w_o, h_o, fps_o = get_resolution_and_fps(orig_path)
@@ -289,12 +527,8 @@ class CompareVideoDialog(QDialog):
 
         orig_lbl = QLabel(tr("<b>Original (scroll to zoom, drag to pan)</b><br>{meta}", meta=orig_meta))
         orig_lbl.setAlignment(Qt.AlignCenter)
-        orig_container = QVBoxLayout()
         self.btn_rotate_orig = self.rotate_button(self.view_orig)
-        orig_container.addLayout(self.header_row(orig_lbl, self.btn_rotate_orig))
-        orig_container.addWidget(self.view_orig, stretch=1)
-        
-        video_layout.addLayout(orig_container, stretch=1)
+        header_layout.addLayout(self.header_row(orig_lbl, self.btn_rotate_orig), stretch=1)
         
         if self.has_comp:
             # Compressed Player
@@ -312,14 +546,12 @@ class CompareVideoDialog(QDialog):
 
             comp_lbl = QLabel(tr("<b>Compressed (scroll to zoom, drag to pan)</b><br>{meta}", meta=comp_meta))
             comp_lbl.setAlignment(Qt.AlignCenter)
-            comp_container = QVBoxLayout()
             self.btn_rotate_comp = self.rotate_button(self.view_comp)
-            comp_container.addLayout(self.header_row(comp_lbl, self.btn_rotate_comp))
-            comp_container.addWidget(self.view_comp, stretch=1)
-        
-            video_layout.addLayout(comp_container, stretch=1)
-        
-        layout.addLayout(video_layout)
+            header_layout.addLayout(self.header_row(comp_lbl, self.btn_rotate_comp), stretch=1)
+
+        layout.addLayout(header_layout)
+        self.stage = CompareStage(self.view_orig, self.view_comp)
+        layout.addWidget(self.stage, stretch=1)
         
         # Timeline: scrubbing seeks both players to the same position.
         position_row = QHBoxLayout()
@@ -361,7 +593,28 @@ class CompareVideoDialog(QDialog):
         
         self.btn_close = QPushButton(tr("Close"))
         self.btn_close.clicked.connect(self.close)
-        
+
+        # how the two are shown (kept for next time): side by side, one picture with a dividing line to drag, or one
+        # picture that flips between them every FLIP_SECONDS
+        self.mode_buttons = {}
+        self.mode_group = QButtonGroup(self)
+        for mode, text, tip in (
+            ("side", tr("◫ Side by side"), tr("The two videos next to each other.")),
+            ("slider", tr("◧ Slider"), tr("One picture with a dividing line you can drag: left of it the original, "
+                                         "right of it the compressed version.")),
+            ("flip", tr("⇄ Flip"), tr("One picture that changes every {seconds} seconds between the original and the "
+                                     "compressed version.", seconds=FLIP_SECONDS)),
+        ):
+            button = QPushButton(text)
+            button.setCheckable(True)
+            button.setToolTip(tip)
+            button.setVisible(self.has_comp)
+            button.clicked.connect(lambda _=False, m=mode: self.choose_mode(m))
+            self.mode_group.addButton(button)
+            self.mode_buttons[mode] = button
+        self.flip_timer = QTimer(self, interval=FLIP_SECONDS * 1000)
+        self.flip_timer.timeout.connect(self.on_flip)
+
         btn_layout.addWidget(self.btn_restart)
         btn_layout.addWidget(self.btn_play)
         btn_layout.addStretch()
@@ -370,6 +623,8 @@ class CompareVideoDialog(QDialog):
         btn_layout.addWidget(self.slider_zoom)
         btn_layout.addWidget(self.btn_zoom_in)
         btn_layout.addStretch()
+        for button in self.mode_buttons.values():
+            btn_layout.addWidget(button)
         btn_layout.addWidget(self.btn_reset)
         btn_layout.addWidget(self.btn_close)
         layout.addLayout(btn_layout)
@@ -389,6 +644,7 @@ class CompareVideoDialog(QDialog):
             button.setAutoDefault(False)
             button.setDefault(False)
         QShortcut(QKeySequence(Qt.Key_Space), self, activated=self.toggle_play)
+        self.set_view_mode(saved_compare_mode() or "side")
 
         self.scrubbing = False
         self.resume_after_scrub = False
@@ -405,6 +661,34 @@ class CompareVideoDialog(QDialog):
         # Otherwise QDialog might only hide/reject without closing immediately.
         self.setModal(True)
         
+    def set_view_mode(self, mode):
+        mode = mode if self.has_comp and mode in CompareStage.MODES else "side"
+        overlay = mode != "side"
+        if overlay and self.overlay_item is None:
+            self.overlay_item = QGraphicsVideoItem()
+            self.player_comp.setVideoOutput(self.overlay_item)
+            self.view_orig.show_overlay(self.overlay_item)
+        elif not overlay and self.overlay_item is not None:
+            self.player_comp.setVideoOutput(self.view_comp.video_item)
+            self.view_orig.show_overlay(None)
+            self.overlay_item = None
+        if self.has_comp and not self.is_playing():
+            self.player_comp.setPosition(self.player_orig.position())   # paused: the new output gets the frame too
+        self.stage.set_mode(mode)
+        self.mode_buttons[mode].setChecked(True)
+        # flipping goes on while paused: comparing one still frame is often the clearest
+        if mode == "flip":
+            self.flip_timer.start()
+        else:
+            self.flip_timer.stop()
+
+    def choose_mode(self, mode):
+        self.set_view_mode(mode)
+        save_compare_mode(self.stage.mode)
+
+    def on_flip(self):
+        self.stage.flip()
+
     def players(self):
         return [self.player_orig, self.player_comp] if self.has_comp else [self.player_orig]
 
@@ -440,15 +724,15 @@ class CompareVideoDialog(QDialog):
             view.set_zoom(factor)
 
     def on_view_zoom_changed(self, factor):
-        val = int(factor * 100)
-        if val < 100: val = 100
-        if val > 500: val = 500
+        # Every view follows, also below the slider's 100 % (zooming out with the wheel): in the slider view the two
+        # pictures lie on top of each other and must stay exactly aligned.
+        for view in self.views():
+            view.set_zoom(factor)
+        val = min(500, max(100, int(factor * 100)))
         if self.slider_zoom.value() != val:
             self.slider_zoom.blockSignals(True)
             self.slider_zoom.setValue(val)
             self.slider_zoom.blockSignals(False)
-            for view in self.views():
-                view.set_zoom(factor)
 
     def zoom_in(self):
         val = min(self.slider_zoom.value() + 20, 500)
@@ -547,6 +831,10 @@ class CompareVideoDialog(QDialog):
             format=describe_streams(path) or tr("could not be read")))
 
     def cleanup_players(self):
+        try:
+            self.flip_timer.stop()
+        except (AttributeError, RuntimeError):
+            pass
         try:
             self.sync_timer.stop()
         except (AttributeError, RuntimeError):  # not created yet, or already freed (__del__)

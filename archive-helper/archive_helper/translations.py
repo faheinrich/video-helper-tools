@@ -122,8 +122,10 @@ register_german({
         'Bereit: {count} zu komprimieren, davon ersetzen {replacing} ein vorhandenes Ergebnis. Reihenfolge: wie in der Tabelle sortiert.',
     'Replace original with result…': 'Original durch Ergebnis ersetzen…',
     'Swap original and result…': 'Original und Ergebnis tauschen…',
-    'Delete original…': 'Original löschen…',
-    'Delete result…': 'Ergebnis löschen…',
+    'Move original to trash…':
+        'Original in den Papierkorb…',
+    'Move result to trash…':
+        'Ergebnis in den Papierkorb…',
     'Process next': 'Als Nächstes',
     'Compare': 'Vergleichen',
     'Show result': 'Ergebnis zeigen',
@@ -151,29 +153,33 @@ register_german({
     'Nothing to do: all {count} videos already have a result. Turn on “Overwrite existing results” to compress them again.':
         'Nichts zu tun: Alle {count} Videos haben schon ein Ergebnis. Schalte „Vorhandene Ergebnisse überschreiben“ ein, um sie neu zu komprimieren.',
     'Overwrite': 'Überschreiben',
-    "Really replace the original '{name}' with the compressed version?":
-        "Das Original '{name}' wirklich durch die komprimierte Version ersetzen?",
+    "Replace the original '{name}' with the compressed version? The original goes to the trash.":
+        "Das Original '{name}' durch die komprimierte Version ersetzen? Das Original kommt in den Papierkorb.",
     'original replaced': 'Original ersetzt',
     'Savings (estimated)': 'Ersparnis (geschätzt)',
     'Swap': 'Tauschen',
     'Really swap the original and the compressed version?':
         'Original und komprimierte Version wirklich tauschen?',
     'swapped': 'getauscht',
-    'Delete': 'Löschen',
-    "Really delete the original '{name}'?\nThis cannot be undone!":
-        "Das Original '{name}' wirklich löschen?\nDas kann nicht rückgängig gemacht werden!",
-    'original deleted': 'Original gelöscht',
-    "Really delete the compressed version '{name}'?\nThis cannot be undone!":
-        "Die komprimierte Version '{name}' wirklich löschen?\nDas kann nicht rückgängig gemacht werden!",
-    'result deleted': 'Ergebnis gelöscht',
-    'Really replace {count} originals with their compressed versions?':
-        '{count} Originale wirklich durch ihre komprimierten Versionen ersetzen?',
+    'Drag the edge of this column to make the previews bigger.':
+        'Ziehe den Rand dieser Spalte, um die Vorschauen zu vergrößern.',
+    'Move to trash': 'In den Papierkorb',
+    "Move the original '{name}' to the trash?":
+        "Das Original '{name}' in den Papierkorb legen?",
+    'original in the trash':
+        'Original im Papierkorb',
+    "Move the compressed version '{name}' to the trash?":
+        "Die komprimierte Version '{name}' in den Papierkorb legen?",
+    'result in the trash':
+        'Ergebnis im Papierkorb',
+    'Replace {count} originals with their compressed versions? The originals go to the trash.':
+        '{count} Originale durch ihre komprimierten Versionen ersetzen? Die Originale kommen in den Papierkorb.',
     'Really swap original and compressed version of {count} videos?':
         'Original und komprimierte Version von {count} Videos wirklich tauschen?',
-    "Really delete {count} originals?\nThis cannot be undone!":
-        "{count} Originale wirklich löschen?\nDas kann nicht rückgängig gemacht werden!",
-    "Really delete {count} compressed versions?\nThis cannot be undone!":
-        "{count} komprimierte Versionen wirklich löschen?\nDas kann nicht rückgängig gemacht werden!",
+    "Move {count} originals to the trash?":
+        "{count} Originale in den Papierkorb legen?",
+    "Move {count} compressed versions to the trash?":
+        "{count} komprimierte Versionen in den Papierkorb legen?",
     'Planned · moved up': 'Geplant · vorgezogen',
     'Running · {percent} %': 'Läuft · {percent} %',
     'Already archived': 'Schon archiviert',
@@ -202,6 +208,16 @@ register_german({
     'Space bar': 'Leertaste',
     '🔄 Reset view': '🔄 Ansicht zurücksetzen',
     'Close': 'Schließen',
+    'Compressed': 'Komprimiert',
+    'Drag to move the dividing line': 'Ziehen, um die Trennlinie zu verschieben',
+    '◫ Side by side': '◫ Nebeneinander',
+    '◧ Slider': '◧ Schieberegler',
+    '⇄ Flip': '⇄ Wechseln',
+    'The two videos next to each other.': 'Beide Videos nebeneinander.',
+    'One picture with a dividing line you can drag: left of it the original, right of it the compressed version.':
+        'Ein Bild mit verschiebbarer Trennlinie: links davon das Original, rechts die komprimierte Version.',
+    'One picture that changes every {seconds} seconds between the original and the compressed version.':
+        'Ein Bild, das alle {seconds} Sekunden zwischen Original und komprimierter Version wechselt.',
     'Video error': 'Videofehler',
     'The {side} could not be played: {error}\n\nFile: {name}\nFormat: {format}':
         'Das {side} konnte nicht abgespielt werden: {error}\n\nDatei: {name}\nFormat: {format}',
@@ -270,8 +286,8 @@ register_german({
     'Prevents sleep while the backup is running.': 'Verhindert den Ruhezustand, solange das Backup läuft.',
     '⚠ Source = target!': '⚠ Quelle = Ziel!',
     'Source = target!': 'Quelle = Ziel!',
-    '{count} videos have the same source and target file. If you continue, these original files are REPLACED by their compressed versions and the originals are gone.\n\nCancel and set a result postfix or another target folder to keep them.':
-        '{count} Videos haben dieselbe Quell- und Zieldatei. Wenn du fortfährst, werden diese Originale durch ihre komprimierten Versionen ERSETZT und sind danach weg.\n\nBreche ab und setze ein Postfix für das Ergebnis oder einen anderen Zielordner, um sie zu behalten.',
+    '{count} videos have the same source and target file. If you continue, these original files are REPLACED by their compressed versions and the originals go to the trash.\n\nCancel and set a result postfix or another target folder to keep them.':
+        '{count} Videos haben dieselbe Quell- und Zieldatei. Wenn du fortfährst, werden diese Originale durch ihre komprimierten Versionen ERSETZT, die Originale kommen in den Papierkorb.\n\nBreche ab und setze ein Postfix für das Ergebnis oder einen anderen Zielordner, um sie zu behalten.',
     'Replace originals': 'Originale ersetzen',
     '⚠ {count} with source = target!': '⚠ {count} mit Quelle = Ziel!',
     '✅ KEPT ORIGINAL: {name} | the compressed file was not smaller': '✅ ORIGINAL BEHALTEN: {name} | die komprimierte Datei war nicht kleiner',

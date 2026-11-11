@@ -17,7 +17,7 @@ from video_helper_core.trash import move_to_trash
 from .boxes import BoxError, copy_maker_boxes, copy_track_metadata, transplant_tracks
 from .utils import (
     DEFAULT_POSTFIX, EXIFTOOL_CONFIG, block_sample_starts, blockiness_command, is_blocky, parse_blockiness, DurationCache, partial_path, path_key, same_file, copy_file_times, format_size, generate_thumbnail, get_thumbnail_path, get_video_info, is_photos_compatible,
-    LEGACY_TAG_COPIES, capture_date_arguments, is_quicktime, metadata_as_text, missing_metadata, source_description, get_audio_streams, get_hdr_color, parse_ffmpeg_time, read_compression_settings, settings_tag_argument,
+    LEGACY_TAG_COPIES, capture_date_arguments, copy_sidecars, is_quicktime, metadata_as_text, missing_metadata, source_description, get_audio_streams, get_hdr_color, parse_ffmpeg_time, read_compression_settings, settings_tag_argument,
 )
 
 class UnifiedScanWorker(QThread):
@@ -500,6 +500,11 @@ class ArchiveWorker(QThread):
             partial.unlink(missing_ok=True)
             return tr("❌ Post-processing failed for {name}: {error}", name=src_path.name, error=e), data_dict
 
+        try:
+            if copy_sidecars(src_path, dst_path) is not None:
+                copy_file_times(src_path, dst_path)   # writing an XMP sidecar into the result touched it
+        except OSError as e:
+            print(f"Sidecars of {src_path.name} not copied: {e}")
         diff_size = src_size - dst_size
         ratio = (dst_size / src_size) * 100 if src_size > 0 else 100.0
 
@@ -614,6 +619,9 @@ def add_missing_metadata(src_path, result_path):
             raise OSError(warning.strip(" ⚠️()"))
         copy_file_times(result_path, work)
         os.replace(work, result_path)
+        stat = result_path.stat()
+        copy_sidecars(src_path, result_path)
+        os.utime(result_path, (stat.st_atime, stat.st_mtime))
         return record.get("metadata_missing", [])
     finally:
         work.unlink(missing_ok=True)

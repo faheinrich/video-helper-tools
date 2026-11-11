@@ -524,6 +524,51 @@ def metadata_as_text(path):
     return kept
 
 
+SIDECAR_SUFFIXES = {".xmp", ".aae", ".xml", ".thm"}
+
+
+def find_sidecars(src_path):
+    """Files next to the original that belong to it: IMG_1.xmp, IMG_1.MOV.xmp (Lightroom, darktable), IMG_1.AAE
+    (Photos edits), C0001M01.XML (Sony), GOPR0001.THM. [(sidecar path, the part of its name after the video's)]."""
+    src_path = Path(src_path)
+    found = []
+    try:
+        neighbours = list(src_path.parent.iterdir())
+    except OSError:
+        return []
+    stem, name = src_path.stem.lower(), src_path.name.lower()
+    for path in neighbours:
+        lower = path.name.lower()
+        if path == src_path or path.suffix.lower() not in SIDECAR_SUFFIXES or lower.startswith("._") or not path.is_file():
+            continue
+        for prefix in (name + ".", stem + "m01.", stem + "."):   # longest first: IMG_1.MOV.xmp before IMG_1.xmp
+            if lower.startswith(prefix):
+                found.append((path, path.name[len(prefix) - 1:] if prefix != stem + "m01." else path.name[len(stem):]))
+                break
+    return sorted(found)
+
+
+def copy_sidecars(src_path, dst_path):
+    """Copies the original's sidecars next to the result under the result's name (an existing file of that name is
+    kept). XMP sidecars are also written into the result itself. Returns the sidecars written."""
+    src_path, dst_path = Path(src_path), Path(dst_path)
+    written = []
+    for sidecar, ending in find_sidecars(src_path):
+        if sidecar.name.lower().startswith(src_path.name.lower() + "."):
+            target = dst_path.with_name(dst_path.name + ending)       # IMG_1.MOV.xmp -> IMG_1_archived.mp4.xmp
+        else:
+            target = dst_path.with_name(dst_path.stem + ending)       # IMG_1.xmp -> IMG_1_archived.xmp
+        if sidecar.suffix.lower() == ".xmp":
+            subprocess.run(["exiftool", "-config", str(EXIFTOOL_CONFIG), "-tagsFromFile", str(sidecar), "-XMP:all",
+                            "--XMP-vht:all", str(dst_path), "-overwrite_original", "-q", "-q"], check=False)
+        if target.exists() or target == sidecar:
+            continue
+        import shutil
+        shutil.copy2(sidecar, target)
+        written.append(target)
+    return written
+
+
 def source_description(src_path):
     """What the result was made from, for the settings record."""
     path = Path(src_path)

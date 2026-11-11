@@ -14,7 +14,7 @@ All notable changes to the two apps and the shared core. The format follows
   version. The tooltip of the settings column shows it.
 - Changed: ffmpeg's container type fields (MajorBrand, MinorVersion, CompatibleBrands) are no longer copied into the
   result as if they were metadata of the camera.
-- New: the camera makers' own metadata (Nikon, Olympus, Panasonic, Fujifilm, Canon and others: camera and lens, focal
+- New: the camera makers' own metadata (Nikon, Olympus, Panasonic, Fujifilm, Canon, Sony's XML and others: camera and lens, focal
   length, aperture, exposure, serial number, picture profile) is copied into the result byte for byte. exiftool can
   read it but cannot write it into videos, so up to now it was lost: the results of Nikon and Olympus videos held
   little more than the date.
@@ -32,6 +32,8 @@ All notable changes to the two apps and the shared core. The format follows
 - New: results made by an earlier version can get the metadata that version did not carry over, from their original,
   without compressing again (`add_missing_metadata`). The picture stays bit for bit the same; the work is done on a
   hidden copy that replaces the result in one step, and the result keeps its file date.
+- New: sidecar files of a video (IMG_1.xmp or IMG_1.MOV.xmp, .AAE, Sony's C0001M01.XML, .THM) are copied next to
+  the result under its name; an XMP sidecar is also written into the result itself.
 - The XMP packet of the original is copied as a whole, so structures exiftool cannot write field by field (e.g. the
   editing history of Adobe programs) come along. Boxes and tracks also go into files whose media data follows the
   moov box (as exiftool writes them); the sample offsets move along.

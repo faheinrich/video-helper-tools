@@ -315,3 +315,52 @@ def test_adding_metadata_leaves_the_result_alone_when_it_fails(tmp_path, monkeyp
         workers.add_missing_metadata(src, old)
     assert old.read_bytes() == before
     assert [p.name for p in tmp_path.iterdir() if p.name.startswith(".")] == []
+
+
+@requires_exiftool
+def test_sidecars_come_along_under_the_results_name(qapp, tmp_path):
+    from archive_helper.compressor.utils import find_sidecars
+
+    src = tmp_path / "src"
+    src.mkdir()
+    make_clip(src / "C0001.MP4", size="320x240", seconds=1)
+    (src / "C0001M01.XML").write_text("<NonRealTimeMeta/>")                 # Sony
+    (src / "C0001.THM").write_bytes(b"thumb")
+    (src / "C0001.MP4.xmp").write_text(
+        '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
+        '<rdf:Description xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title><rdf:Alt>'
+        '<rdf:li xml:lang="x-default">Hafen bei Nacht</rdf:li></rdf:Alt></dc:title></rdf:Description></rdf:RDF></x:xmpmeta>')
+    (src / "C0002.XML").write_text("other video")
+    assert [p.name for p, _ in find_sidecars(src / "C0001.MP4")] == ["C0001.MP4.xmp", "C0001.THM", "C0001M01.XML"]
+
+    out, _, _ = compress(qapp, src, "C0001.MP4")
+
+    names = sorted(p.name for p in out.parent.iterdir())
+    assert names == ["C0001_archived.THM", "C0001_archived.mp4", "C0001_archived.mp4.xmp", "C0001_archivedM01.XML"]
+    title = subprocess.run(["exiftool", "-s3", "-XMP-dc:Title", str(out)], capture_output=True, text=True).stdout.strip()
+    assert title == "Hafen bei Nacht"   # also inside the result
+
+
+def sony_meta_box(model="ILCE-7M3"):
+    """The top-level meta box with the NonRealTimeMeta XML that Sony cameras write next to moov."""
+    from archive_helper.compressor.boxes import make_box
+
+    xml = ('<?xml version="1.0" encoding="UTF-8"?><NonRealTimeMeta xmlns="urn:schemas-professionalDisc:'
+           f'nonRealTimeMeta:ver.2.00"><Device manufacturer="Sony" modelName="{model}" serialNo="3312345"/>'
+           '</NonRealTimeMeta>').encode()
+    hdlr = make_box(b"hdlr", bytes(4) + bytes(4) + b"meta" + bytes(12) + b"\0")
+    return make_box(b"meta", bytes(4) + hdlr + make_box(b"xml ", bytes(4) + xml))
+
+
+@requires_exiftool
+def test_sonys_xml_next_to_the_moov_box_reaches_the_result(qapp, tmp_path):
+    src = tmp_path / "src"
+    src.mkdir()
+    with_boxes(make_clip(src / "C0002.MP4", size="320x240", seconds=1), top_boxes=[sony_meta_box()])
+    model = ["exiftool", "-s3", "-XML:DeviceModelName", "-XML:DeviceSerialNo"]
+    assert subprocess.run([*model, str(src / "C0002.MP4")], capture_output=True, text=True).stdout.split() == ["ILCE-7M3", "3312345"]
+
+    out, _, data = compress(qapp, src, "C0002.MP4")
+
+    assert subprocess.run([*model, str(out)], capture_output=True, text=True).stdout.split() == ["ILCE-7M3", "3312345"]
+    assert "metadata_missing" not in data["settings"]

@@ -103,11 +103,11 @@ def maker_boxes(path):
                         udta_children.append((box_key(data, child), data[child[1]:child[1] + child[3]]))
             elif box[0] == b"uuid" and data[box[1] + box[2]:box[1] + box[2] + 16] != XMP_UUID:
                 moov_uuids.append((box_key(data, box), data[box[1]:box[1] + box[3]]))
-    top_uuids = []
+    top_uuids = []   # uuid boxes, and meta boxes such as Sony's NonRealTimeMeta XML
     for box in top:
-        if box[0] == b"uuid" and box[3] < 64 * 1024 * 1024:
+        if box[0] in (b"uuid", b"meta") and box[3] < 64 * 1024 * 1024:
             data = read_box(path, box)
-            if data[box[2]:box[2] + 16] != XMP_UUID:
+            if box[0] == b"meta" or data[box[2]:box[2] + 16] != XMP_UUID:
                 top_uuids.append((box_key(data, (box[0], 0, box[2], box[3])), data))
     return udta_children, moov_uuids, top_uuids
 
@@ -146,9 +146,10 @@ def copy_maker_boxes(src_path, dst_path):
             children.append((raw, False))
             have.add(key)
             copied.append("uuid " + key[4:].hex())
-    top_have = {box_key(read_box(dst_path, b), (b[0], 0, b[2], b[3])) for b in top if b[0] == b"uuid"}
+    top_have = {box_key(read_box(dst_path, b), (b[0], 0, b[2], b[3])) for b in top if b[0] in (b"uuid", b"meta")}
     tail = [raw for key, raw in top_uuids if key not in top_have]
-    copied += ["uuid " + key[4:].hex() for key, _ in top_uuids if key not in top_have]
+    copied += [("uuid " + key[4:].hex()) if key[:4] == b"uuid" else key.decode("latin-1")
+               for key, _ in top_uuids if key not in top_have]
     if not copied:
         return []
 

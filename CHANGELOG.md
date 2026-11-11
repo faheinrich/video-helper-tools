@@ -6,6 +6,16 @@ All notable changes to the two apps and the shared core. The format follows
 
 ## [Unreleased]
 
+### Analysis Helper
+- Changed: when a transcription replaces an existing EAF file, the earlier one goes to the trash.
+- Fixed: dark mode on macOS: the transcriber's panels glared bright grey, and its section titles and the sync tool's waveform
+  captions were hard to read.
+- The update check fix of 0.0.4 and the shared dark mode fixes reach this app with its next release.
+
+## [0.0.5] - 2026-11-11
+
+Archive Helper `archive-v0.0.5`: camera metadata reaches the compressed result. Analysis Helper is not released this time.
+
 ### Archive Helper
 - New: a video without a capture date of its own (some cameras, screen recordings, messenger videos) gets one written into
   the result: from another date field of the original if it has one, otherwise from the file date. Before, the date only
@@ -40,12 +50,6 @@ All notable changes to the two apps and the shared core. The format follows
 - The metadata comparison leaves out what compressing changes by its nature: stream details of AVI and AVCHD (codec,
   rates, counts), positions inside the file, and the Photos library signature of iPhone videos, which a compressed
   copy deliberately does not take over so the Photos app does not mistake it for the original.
-
-### Analysis Helper
-- Changed: when a transcription replaces an existing EAF file, the earlier one goes to the trash.
-- Fixed: dark mode on macOS: the transcriber's panels glared bright grey, and its section titles and the sync tool's waveform
-  captions were hard to read.
-- The update check fix of 0.0.4 and the shared dark mode fixes reach this app with its next release.
 
 ## [0.0.4] - 2026-11-09
 

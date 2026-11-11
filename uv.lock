@@ -116,7 +116,7 @@ wheels = [
 
 [[package]]
 name = "archive-helper"
-version = "0.0.4"
+version = "0.0.5"
 source = { editable = "archive-helper" }
 dependencies = [
     { name = "pyside6" },

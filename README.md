@@ -42,7 +42,7 @@ FFmpeg and ExifTool are needed for most tests (they are skipped when missing).
 A tag builds one app for macOS, Linux and Windows and publishes it as a GitHub release:
 
 ```bash
-git tag archive-v<version> && git push origin archive-v<version>     # e.g. archive-v0.0.4
+git tag archive-v<version> && git push origin archive-v<version>     # e.g. archive-v0.0.5
 git tag analysis-v<version> && git push origin analysis-v<version>   # e.g. analysis-v0.0.2
 ```
 

@@ -1,6 +1,6 @@
 [project]
 name = "archive-helper"
-version = "0.0.4"
+version = "0.0.5"
 description = "Desktop app for compressing videos for the archive (HEVC, metadata kept) and backing up folders with rsync."
 readme = "README.md"
 requires-python = ">=3.12"

@@ -23,8 +23,10 @@ if [ ${#missing[@]} -gt 0 ]; then
   apt="sudo timeout 300 apt-get -o Acquire::Retries=3"
   $apt install -y --no-install-recommends "${missing[@]}" \
     || { $apt update && $apt install -y --no-install-recommends "${missing[@]}"; }
+  sudo ldconfig   # the cache may not list a library installed a moment ago yet
   for package in "${missing[@]}"; do
-    has_library "${libraries[$package]}" || { echo "::error::${libraries[$package]} still missing"; exit 1; }
+    # a warning, not a failure: the tests run offscreen and show it themselves if Qt cannot load something
+    has_library "${libraries[$package]}" || echo "::warning title=Qt libraries::${libraries[$package]} not found after installing $package"
   done
 else
   echo "All Qt libraries are present"

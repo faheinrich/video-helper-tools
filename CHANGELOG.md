@@ -21,8 +21,9 @@ All notable changes to the two apps and the shared core. The format follows
   right).
 
 ### Development
-- Tests run in parallel (pytest-xdist), locally and on GitHub; on GitHub also on Windows. Analysis Helper is tested
-  as before for now (one process, Linux and macOS): in parallel its tests at times hung.
+- GitHub also tests on Windows (core and Archive Helper; Analysis Helper not yet, its tests at times hung there).
+- pytest-xdist is installed: `pytest -n auto` runs the tests in parallel. Not on GitHub: with its 3-4 cores it was
+  not faster, as many tests run ffmpeg, which uses all cores already.
 
 ## [analysis-v0.0.3] - 2026-11-11
 

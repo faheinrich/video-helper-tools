@@ -11,13 +11,11 @@ jobs:
       matrix:
         os: [ubuntu-24.04, macos-latest, windows-latest]   # Linux fixed: ubuntu-latest moved to Ubuntu 26
         package: [video-helper-core, archive-helper, analysis-helper]
-        include:   # adds the folder (and how many test processes) to the combinations of the same package
-          - {package: video-helper-core, dir: core, workers: auto}
-          - {package: archive-helper, dir: archive-helper, workers: auto}
-          # Analysis Helper for now as before: one process, no Windows. In parallel its tests at times hung
-          # (Linux, Windows) or crashed; to be looked into.
-          - {package: analysis-helper, dir: analysis-helper, workers: "0"}
-        exclude:
+        include:   # adds the folder to the combinations of the same package
+          - {package: video-helper-core, dir: core}
+          - {package: archive-helper, dir: archive-helper}
+          - {package: analysis-helper, dir: analysis-helper}
+        exclude:   # for now: its tests at times hung on Windows; to be looked into
           - {os: windows-latest, package: analysis-helper}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
@@ -60,7 +58,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          uv run --package ${{ matrix.package }} pytest -n ${{ matrix.workers }} --junitxml=junit.xml --cov --cov-report=term-missing \
+          uv run --package ${{ matrix.package }} pytest --junitxml=junit.xml --cov --cov-report=term-missing \
             --cov-report=xml --cov-report=html 2>&1 | tee pytest.log
         env:
           QT_QPA_PLATFORM: offscreen

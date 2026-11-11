@@ -57,7 +57,7 @@ jobs:
         include:
           - os: macos-latest
             label: macOS-silicon
-          - os: ubuntu-latest
+          - os: ubuntu-24.04   # fixed: on ubuntu-latest (now Ubuntu 26) installing the Qt libraries failed
             label: Linux-x64
           - os: windows-latest
             label: Windows-x64
@@ -73,9 +73,11 @@ jobs:
           enable-cache: true
       - name: Qt libraries (Linux)
         if: runner.os == 'Linux'
+        timeout-minutes: 8
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libegl1 libgl1 libxkbcommon0 libdbus-1-3 libfontconfig1 libxcb-cursor0
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
+            libegl1 libgl1 libxkbcommon0 libdbus-1-3 libfontconfig1 libxcb-cursor0
       - name: Build the app
         shell: bash
         run: bash "$APP/build.sh"

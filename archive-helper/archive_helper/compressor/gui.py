@@ -585,8 +585,8 @@ class ArchiverGUI(QWidget):
         return button
 
     def build_drawer(self):
-        drawer = QFrame(objectName="drawer")
-        drawer.setFixedWidth(340)
+        drawer = self.drawer_frame = QFrame(objectName="drawer")
+        drawer.setFixedWidth(self.DRAWER_WIDTH)
         outer = QVBoxLayout(drawer)
         outer.setContentsMargins(0, 0, 0, 0)
         scroll = QScrollArea()
@@ -767,7 +767,19 @@ class ArchiverGUI(QWidget):
         layout.addWidget(self.btn_save_defaults)
 
         self.apply_quality_preset("archive")
+        self.btn_advanced.toggled.connect(lambda _on: QTimer.singleShot(0, self.fit_drawer_width))
+        self.fit_drawer_width()
         return drawer
+
+    DRAWER_WIDTH = 340
+
+    def fit_drawer_width(self):
+        """At least DRAWER_WIDTH, wider if the content needs it: with other fonts (Windows) the options did not fit
+        and were cut off at the right, as the drawer scrolls only up and down."""
+        content = self.drawer_scroll.widget()
+        content.layout().activate()
+        needed = content.minimumSizeHint().width() + self.drawer_scroll.verticalScrollBar().sizeHint().width()
+        self.drawer_frame.setFixedWidth(max(self.DRAWER_WIDTH, needed))
 
     # ------------------------------------------------------------ settings UI
     def apply_quality_preset(self, key):
@@ -798,6 +810,7 @@ class ArchiverGUI(QWidget):
             # Word-wrapped labels keep a height computed for another width after being
             # hidden; recompute so the section does not get uneven gaps.
             self.drawer_scroll.widget().layout().invalidate()
+            self.fit_drawer_width()
 
     def browse_folder(self, line_edit):
         folder = QFileDialog.getExistingDirectory(self, tr("Choose folder"), line_edit.text())

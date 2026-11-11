@@ -116,7 +116,7 @@ def test_overwrite_option_reprocesses_existing_results(qapp, make_gui, tmp_path,
     gui.cb_dry_run.setChecked(True)
     run_archive(qapp, gui, src, dst)
     # mtime is copied from the original on purpose, so compare the inode change time.
-    first = (dst / "a_archived.mp4").stat().st_ctime_ns
+    first = (dst / "a_archived.mp4").stat().st_ino   # a new file replaces it (st_ctime is the creation time on Windows)
     if rescan:
         gui.start_unified_scan()
         wait_for(gui.scan_worker.scan_finished)
@@ -134,7 +134,7 @@ def test_overwrite_option_reprocesses_existing_results(qapp, make_gui, tmp_path,
     gui.start_archiving()
     wait_idle(qapp, gui)
     assert gui.model.rows[0].status == "done"
-    assert (dst / "a_archived.mp4").stat().st_ctime_ns != first
+    assert (dst / "a_archived.mp4").stat().st_ino != first
     assert not gui.btn_run.isEnabled() or gui.cb_overwrite.isChecked()
 
 
@@ -175,6 +175,7 @@ def test_scan_starts_automatically_once_both_folders_are_set(qapp, make_gui, tmp
 @requires_ffmpeg
 def test_home_relative_paths_are_expanded(qapp, make_gui, tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))   # what "~" means on Windows
     (tmp_path / "src").mkdir()
     shutil.copy(EXAMPLE_VIDEOS[0], tmp_path / "src" / "clip.mp4")
     gui = make_gui()
@@ -278,6 +279,20 @@ def test_only_the_selected_encoders_quality_controls_are_shown(qapp, make_gui):
     assert gui.cpu_quality.isVisible() and not gui.gpu_quality.isVisible()
     gui.combo_renderer.setCurrentIndex(1)
     assert gui.gpu_quality.isVisible() and not gui.cpu_quality.isVisible()
+
+
+def test_settings_drawer_grows_when_its_content_needs_more_room(qapp, make_gui):
+    # Regression (Windows): with its fonts the options needed about 500 px, the drawer was fixed at 340 and,
+    # scrolling only up and down, cut them off at the right.
+    gui = make_gui()
+    gui.resize(1400, 800)
+    gui.show()
+    gui.btn_save_defaults.setMinimumWidth(600)   # stands for wider text
+    gui.fit_drawer_width()
+    qapp.processEvents()
+    content = gui.drawer_scroll.widget()
+    assert gui.drawer_frame.width() > gui.DRAWER_WIDTH
+    assert content.minimumSizeHint().width() <= gui.drawer_scroll.viewport().width()
 
 
 @pytest.mark.parametrize("language", ["de", "en"])

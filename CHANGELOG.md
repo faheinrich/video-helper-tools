@@ -14,6 +14,11 @@ All notable changes to the two apps and the shared core. The format follows
 - Fixed (Windows): the settings column stayed empty and missing metadata was not flagged, because exiftool names the
   files with "/" and the stored settings were looked up with "\".
 - Fixed (Windows): a folder dropped onto a path field showed "/" instead of the system's "\".
+- Fixed (Windows): stopping a run failed with an error, because the unfinished file was still locked by the ffmpeg
+  that had just been stopped.
+- Fixed (Windows): results kept today's date as creation date; they now get the original's, as on macOS.
+- Fixed: the settings drawer grows when its options need more room (with Windows' fonts they were cut off at the
+  right).
 
 ### Development
 - Tests run in parallel (pytest-xdist), locally and on GitHub; on GitHub also on Windows, for all three packages.

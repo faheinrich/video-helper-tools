@@ -647,14 +647,43 @@ def get_hdr_color(file_path):
 
 
 def copy_file_times(src_path, dst_path):
-    """Gives dst the access, modification and (on macOS) creation time of src. The Finder shows the
-    creation time, so without this a compressed copy looks as if it had been made today."""
+    """Gives dst the access, modification and (on macOS and Windows) creation time of src. The Finder and the
+    Explorer show the creation time, so without this a compressed copy looks as if it had been made today."""
     stat = Path(src_path).stat()
     birth = getattr(stat, "st_birthtime", None)
+    if sys.platform == "win32":
+        os.utime(dst_path, (stat.st_atime, stat.st_mtime))
+        if birth is not None:
+            set_windows_creation_time(dst_path, birth)
+        return
     if birth is not None and birth < stat.st_mtime:
         # macOS moves a file's creation time back whenever the modification time is set to an earlier moment.
         os.utime(dst_path, (stat.st_atime, birth))
     os.utime(dst_path, (stat.st_atime, stat.st_mtime))
+
+
+def set_windows_creation_time(path, timestamp):
+    """Sets a file's creation time on Windows (os.utime cannot)."""
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateFileW.restype = wintypes.HANDLE
+    kernel32.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+                                     wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    kernel32.SetFileTime.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.FILETIME), wintypes.LPVOID, wintypes.LPVOID]
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    FILE_WRITE_ATTRIBUTES, SHARE_ALL, OPEN_EXISTING, BACKUP_SEMANTICS = 0x0100, 0x7, 3, 0x02000000
+    handle = kernel32.CreateFileW(str(path), FILE_WRITE_ATTRIBUTES, SHARE_ALL, None, OPEN_EXISTING, BACKUP_SEMANTICS, None)
+    if handle in (None, wintypes.HANDLE(-1).value):
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        ticks = int(timestamp * 10_000_000) + 116_444_736_000_000_000   # 100 ns steps since 1601
+        created = wintypes.FILETIME(ticks & 0xFFFFFFFF, ticks >> 32)
+        if not kernel32.SetFileTime(handle, ctypes.byref(created), None, None):
+            raise ctypes.WinError(ctypes.get_last_error())
+    finally:
+        kernel32.CloseHandle(handle)
 
 
 class DurationCache:

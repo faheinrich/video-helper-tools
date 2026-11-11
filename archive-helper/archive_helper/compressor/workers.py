@@ -541,7 +541,14 @@ class ArchiveWorker(QThread):
                         p_ffmpeg.kill()
                 except:
                     pass
-            partial_path(dst_path).unlink(missing_ok=True)   # only the unfinished file; an existing result stays
+            try:
+                p_ffmpeg.wait(timeout=10)   # Windows keeps the file locked until the process has really ended
+            except subprocess.TimeoutExpired:
+                pass
+            try:
+                partial_path(dst_path).unlink(missing_ok=True)   # only the unfinished file; an existing result stays
+            except OSError as e:
+                print(f"Unfinished file not removed: {e}")
 
 
 

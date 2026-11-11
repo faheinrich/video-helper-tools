@@ -155,6 +155,9 @@ class LabWorker(QThread):
                 self.process = subprocess.Popen(
                     command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
                     preexec_fn=os.setsid if sys.platform != "win32" else None)
+                if self._stopped:
+                    # stopped while the command was being prepared (ffprobe): stop() found no process to kill yet
+                    kill_process(self.process)
                 last_line = self.read_progress(index)
             except Exception as e:
                 self.variant_failed.emit(index, str(e))

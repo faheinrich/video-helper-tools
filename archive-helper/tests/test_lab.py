@@ -746,3 +746,30 @@ def test_nothing_starts_after_the_lab_is_closed(qapp, lab):
     spin(400)                          # longer than the frame timer
     assert lab.frame_worker is before and (before is None or not before.isRunning())
     assert lab.lab_worker is None or not lab.lab_worker.isRunning()
+
+
+@requires_ffmpeg
+def test_a_stop_while_the_command_is_prepared_also_stops_ffmpeg(qapp, tmp_path, monkeypatch):
+    # Regression: stop() came while ffprobe prepared the command, found no process yet, and the ffmpeg started right
+    # after ran its whole encoding.
+    import time
+    from archive_helper.compressor import lab as lab_module
+    from archive_helper.compressor.lab import LabWorker, variant_defaults
+
+    clip = make_clip(tmp_path / "a.mp4", seconds=20, size="1280x720")
+    (tmp_path / "lab").mkdir()
+    slow = [{**v, 'preset': 'veryslow'} for v in variant_defaults(BASE)][:1]
+    worker = LabWorker(clip, (0, 20), list(enumerate(slow)), tmp_path / "lab", 25)
+    prepare = lab_module.ArchiveWorker.build_ffmpeg_command
+
+    def prepare_and_get_stopped(self, *args, **kwargs):
+        command = prepare(self, *args, **kwargs)
+        worker.stop()   # the user cancels right now
+        return command
+
+    monkeypatch.setattr(lab_module.ArchiveWorker, "build_ffmpeg_command", prepare_and_get_stopped)
+    done = []
+    worker.variant_done.connect(lambda *args: done.append(args))
+    begin = time.monotonic()
+    worker.run()
+    assert time.monotonic() - begin < 10 and done == []

@@ -10,6 +10,7 @@ All notable changes to the two apps and the shared core. The format follows
 - Fixed: "Stop" in the backup page did nothing while rsync was still starting.
 - Fixed: closing the compression lab while a frame was about to load (or an encoding was ending) started ffmpeg for
   the closed window; quitting the app at that moment could make it crash.
+- Fixed: cancelling in the compression lab right as an encoding was about to start let that encoding run to its end.
 
 ### Development
 - Tests run in parallel (pytest-xdist), locally and on GitHub; on GitHub also on Windows, for all three packages.

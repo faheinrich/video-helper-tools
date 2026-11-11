@@ -40,9 +40,19 @@ jobs:
       - run: uv sync --package ${{ matrix.package }} --group dev
       - name: Run tests with coverage
         working-directory: ${{ matrix.dir }}
-        run: uv run --package ${{ matrix.package }} pytest --cov --cov-report=term-missing --cov-report=xml --cov-report=html
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run --package ${{ matrix.package }} pytest --junitxml=junit.xml --cov --cov-report=term-missing \
+            --cov-report=xml --cov-report=html 2>&1 | tee pytest.log
         env:
           QT_QPA_PLATFORM: offscreen
+      # The run's logs need a login to read; annotations do not, so the reasons of a failure are put there.
+      - name: Failures as annotations
+        if: failure()
+        working-directory: ${{ matrix.dir }}
+        shell: bash
+        run: python ../.github/scripts/annotate_failures.py junit.xml pytest.log
       - name: Coverage summary
         if: always()
         working-directory: ${{ matrix.dir }}

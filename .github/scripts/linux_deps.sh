@@ -6,7 +6,8 @@ set -euo pipefail
 packages=(libegl1 libgl1 libxkbcommon0 libdbus-1-3 libfontconfig1 libxcb-cursor0)
 missing=()
 for package in "${packages[@]}"; do
-  dpkg -s "$package" >/dev/null 2>&1 || missing+=("$package")
+  # "install ok installed": dpkg -s also succeeds for a removed package whose config files are left
+  dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q "install ok installed" || missing+=("$package")
 done
 if [ ${#missing[@]} -gt 0 ]; then
   echo "Installing ${missing[*]}"

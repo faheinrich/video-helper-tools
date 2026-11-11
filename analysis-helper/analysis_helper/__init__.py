@@ -1,5 +1,5 @@
 # Single source of the version shown in the About dialog; a test keeps it equal to pyproject.toml.
-__version__ = "0.0.2"
+__version__ = "0.0.3"
 
 import os
 

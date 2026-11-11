@@ -43,7 +43,7 @@ A tag builds one app for macOS, Linux and Windows and publishes it as a GitHub r
 
 ```bash
 git tag archive-v<version> && git push origin archive-v<version>     # e.g. archive-v0.0.5
-git tag analysis-v<version> && git push origin analysis-v<version>   # e.g. analysis-v0.0.2
+git tag analysis-v<version> && git push origin analysis-v<version>   # e.g. analysis-v0.0.3
 ```
 
 The version in the tag must match the app's `pyproject.toml` (and `__version__`); the workflow checks that.

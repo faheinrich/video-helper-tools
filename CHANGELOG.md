@@ -6,11 +6,21 @@ All notable changes to the two apps and the shared core. The format follows
 
 ## [Unreleased]
 
+## [analysis-v0.0.3] - 2026-11-11
+
+Analysis Helper `analysis-v0.0.3`. Archive Helper is not released this time.
+
 ### Analysis Helper
 - Changed: when a transcription replaces an existing EAF file, the earlier one goes to the trash.
 - Fixed: dark mode on macOS: the transcriber's panels glared bright grey, and its section titles and the sync tool's waveform
   captions were hard to read.
-- The update check fix of 0.0.4 and the shared dark mode fixes reach this app with its next release.
+- Also contains the update check fix of Archive Helper 0.0.4 and the shared dark mode fixes.
+
+### Development
+- GitHub: Linux runners are fixed to Ubuntu 24.04 (ubuntu-latest moved to Ubuntu 26, where the release build failed).
+  Linux dependencies no longer come from a plain apt run, whose mirrors at times hung for many minutes: ffmpeg from a
+  ready-made build, exiftool from its repository, and only the Qt libraries that are missing from GitHub's image.
+  Failed tests show their reason as annotations on the run.
 
 ## [0.0.5] - 2026-11-11
 

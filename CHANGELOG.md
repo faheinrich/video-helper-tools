@@ -21,7 +21,8 @@ All notable changes to the two apps and the shared core. The format follows
   right).
 
 ### Development
-- Tests run in parallel (pytest-xdist), locally and on GitHub; on GitHub also on Windows, for all three packages.
+- Tests run in parallel (pytest-xdist), locally and on GitHub; on GitHub also on Windows. Analysis Helper is tested
+  as before for now (one process, Linux and macOS): in parallel its tests at times hung.
 
 ## [analysis-v0.0.3] - 2026-11-11
 

@@ -1355,6 +1355,9 @@ class ArchiverGUI(QWidget):
             blocky = sum(r.blocky for r in run_rows)
             if blocky:
                 parts.append(tr("⚠ {count} may show blocks.", count=blocky))
+            lacking = sum(bool(r.metadata_missing) for r in run_rows)
+            if lacking:
+                parts.append(tr("⚠ {count} lack metadata of the original.", count=lacking))
         queue = self.queue_items()
         conflicts = sum(1 for item in queue if item.get('conflict'))
         if conflicts:

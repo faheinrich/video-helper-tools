@@ -3,6 +3,7 @@ import subprocess
 import shutil
 import time
 import signal
+import struct
 import sys
 import re
 import threading
@@ -13,9 +14,10 @@ from PySide6.QtGui import QImage
 
 from video_helper_core.i18n import tr
 from video_helper_core.trash import move_to_trash
+from .boxes import BoxError, copy_maker_boxes, copy_track_metadata, transplant_tracks
 from .utils import (
     DEFAULT_POSTFIX, EXIFTOOL_CONFIG, block_sample_starts, blockiness_command, is_blocky, parse_blockiness, DurationCache, partial_path, path_key, same_file, copy_file_times, format_size, generate_thumbnail, get_thumbnail_path, get_video_info, is_photos_compatible,
-    capture_date_arguments, source_description, get_audio_streams, get_hdr_color, parse_ffmpeg_time, read_compression_settings, settings_tag_argument,
+    LEGACY_TAG_COPIES, capture_date_arguments, is_quicktime, metadata_as_text, missing_metadata, source_description, get_audio_streams, get_hdr_color, parse_ffmpeg_time, read_compression_settings, settings_tag_argument,
 )
 
 class UnifiedScanWorker(QThread):
@@ -462,19 +464,48 @@ class ArchiveWorker(QThread):
         # exiftool) must not throw away an otherwise successfully compressed video.
         metadata_warning = ""
         record = None
+        # First: exiftool keeps boxes and tracks it cannot write itself, so they must be in place before it runs.
+        # A test run is a second long: tracks of the whole video would not fit it. The comparison below reports
+        # whatever does not come over.
+        if not self.settings.get('dry_run'):
+            try:
+                transplant_tracks(src_path, partial)
+            except (OSError, BoxError, struct.error, ValueError) as e:
+                print(f"Tracks of {src_path.name} not carried over: {e}")
+        try:
+            copy_track_metadata(src_path, partial)
+        except (OSError, BoxError, struct.error) as e:
+            print(f"Track metadata of {src_path.name} not copied: {e}")
+        try:
+            copy_maker_boxes(src_path, partial)
+        except (OSError, BoxError, struct.error) as e:
+            print(f"Maker boxes of {src_path.name} not copied: {e}")
         try:
             date_arguments, date_from = capture_date_arguments(src_path)
             record = self.settings_record(src_path, source_description(src_path), date_from)
+            legacy = not is_quicktime(src_path)
+            if legacy:
+                record["source_metadata"] = metadata_as_text(src_path)
             # -config must come first; the settings tag and an added date go after the copy so it does not
             # overwrite them. The file type fields of ffmpeg's container are not metadata of the video: left out.
             subprocess.run(
                 ["exiftool", "-config", str(EXIFTOOL_CONFIG),
                  "-tagsFromFile", str(src_path), "-all:all", "-gps*", "-Keys:all", "-UserData:all",
                  "--MajorBrand", "--MinorVersion", "--CompatibleBrands",
-                 *date_arguments, settings_tag_argument(record),
+                 *(LEGACY_TAG_COPIES if legacy else []), *date_arguments, settings_tag_argument(record),
                  str(partial), "-overwrite_original", "-q"], check=True)
         except Exception as e:
             metadata_warning = tr(" ⚠️ (metadata could not be copied: {error})", error=e)
+        if record is not None and not metadata_warning:
+            try:
+                missing = missing_metadata(src_path, partial, record.get("source_metadata", {}))
+                if missing:
+                    # kept in the result, so the warning is still there after a restart
+                    record["metadata_missing"] = missing
+                    subprocess.run(["exiftool", "-config", str(EXIFTOOL_CONFIG), settings_tag_argument(record),
+                                    str(partial), "-overwrite_original", "-q"], check=True)
+            except Exception as e:
+                print(f"Metadata of {src_path.name} not compared: {e}")
         try:
             copy_file_times(src_path, partial)
         except OSError as e:

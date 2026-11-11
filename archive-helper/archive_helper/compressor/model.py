@@ -37,6 +37,8 @@ def status_label(row):
     label = _status_label(row)
     if row.blocky:
         label += " · " + tr("⚠ blocks?")
+    if row.metadata_missing:
+        label += " · " + tr("⚠ metadata?")
     return f"⚠ {tr('Duplicate target name')} · {label}" if row.duplicate else label
 
 
@@ -129,6 +131,11 @@ class VideoRow:
     @property
     def blocky(self):
         return self.block_check is not None and is_blocky(*self.block_check)
+
+    @property
+    def metadata_missing(self):
+        """Metadata of the original that did not reach the result (stored in the result's settings tag)."""
+        return (self.settings or {}).get("metadata_missing") or [] if self.out_size is not None else []
 
     @property
     def has_result(self):
@@ -260,11 +267,20 @@ class VideoTableModel(QAbstractTableModel):
                 other = self.data(index, Qt.ToolTipRole + 1000)   # the tooltip without the times
                 return "\n".join(text for text in (timing, other) if text) or None
         if role == Qt.ToolTipRole + 1000:
+            warnings = []
             if col == COL_STATUS and row.blocky:
                 result, original = row.block_check
-                return tr("Flat areas may show visible blocks: score {result:.1f}, original {original}. Compare it with "
-                          "the original; if it shows, the CPU encoder (libx265) or a higher quality helps.",
-                          result=result, original="–" if original is None else f"{original:.1f}")
+                warnings.append(tr("Flat areas may show visible blocks: score {result:.1f}, original {original}. Compare it with "
+                                   "the original; if it shows, the CPU encoder (libx265) or a higher quality helps.",
+                                   result=result, original="–" if original is None else f"{original:.1f}"))
+            if col == COL_STATUS and row.metadata_missing:
+                shown = row.metadata_missing[:12]
+                more = len(row.metadata_missing) - len(shown)
+                warnings.append(tr("Metadata of the original that is not in the result (keep the original if you need it):")
+                                + "\n" + "\n".join("  " + name for name in shown)
+                                + ("\n  " + tr("… and {count} more", count=more) if more else ""))
+            if warnings:
+                return "\n\n".join(warnings)
             if row.note:
                 return row.note
         return None
@@ -430,7 +446,7 @@ class StatusDelegate(QStyledItemDelegate):
         painter.save()
         painter.setRenderHint(QPainter.Antialiasing)
         color = CONFLICT_COLOR if row.conflict and row.status in ("planned", "error") else STATUS_COLORS[row.status]
-        if row.blocky:
+        if row.blocky or row.metadata_missing:
             color = WARNING_COLOR
         font = QFont(option.font)
         font.setPointSizeF(option.font.pointSizeF() * 0.92)

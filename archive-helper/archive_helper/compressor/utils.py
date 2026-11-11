@@ -405,6 +405,125 @@ def capture_date_arguments(src_path):
     return [f"-Keys:CreationDate={local}", f"-QuickTime:CreateDate={utc}"], origin
 
 
+# What a compressed copy is expected to change: the container and its tracks (codec, sizes, durations, the
+# encoder's own name), exiftool's bookkeeping, and our settings tag. Everything else should come over unchanged.
+IGNORED_METADATA_GROUPS = re.compile(r"^(ExifTool|System|File|Composite|QuickTime|Track\d+|Video\d*|Audio\d*)$")
+IGNORED_METADATA_TAGS = {"Encoder", "XMPToolkit", "MajorBrand", "MinorVersion", "CompatibleBrands", "CompressorName",
+                         "HandlerType", "HandlerVendorID", "HandlerDescription", "CompressionSettings",
+                         # ties a file to one asset of the Photos library: a compressed copy must not claim to be it
+                         "ApplePhotosOriginatingSignature"}
+# The stream description of other containers (AVI, AVCHD): codec, rates, sizes, counts. Their camera metadata
+# (dates, make, exposure) lives in the same groups and is still compared.
+TECHNICAL_STREAM_TAGS = {"FrameRate", "MaxDataRate", "FrameCount", "StreamCount", "StreamType", "StreamName",
+                         "VideoCodec", "VideoFrameCount", "Quality", "SampleSize", "VendorName", "AudioCodec",
+                         "AudioSampleRate", "AudioSampleCount", "Encoding", "NumChannels", "SampleRate",
+                         "AvgBytesPerSec", "BitsPerSample", "VideoFrameRate", "VideoStreamType", "AudioStreamType", "Duration",
+                         "AudioBitrate", "SurroundMode", "ImageWidth", "ImageHeight", "AudioChannels"}
+STREAM_GROUPS = {"RIFF", "M2TS", "AC3", "H264", "MPEG"}
+
+
+def expected_to_change(group, tag):
+    """Whether compressing changes this tag by its nature (container, stream, positions in the file)."""
+    return (IGNORED_METADATA_GROUPS.match(group) is not None or tag in IGNORED_METADATA_TAGS
+            or (group in STREAM_GROUPS and tag in TECHNICAL_STREAM_TAGS)
+            or tag.endswith("Offset"))   # where something sits in the file, e.g. ThumbnailOffset
+_ARG_RE = re.compile(r"^-([^:=]+):([^=]+)=(.*)$")
+
+
+def metadata_entries(path):
+    """[(group, tag, value)] of everything exiftool reads from path, duplicates included."""
+    cmd = ["exiftool", "-config", str(EXIFTOOL_CONFIG), "-a", "-G1", "-s", "-args", "-api", "LargeFileSupport=1",
+           "-charset", "filename=utf8", str(path)]
+    result = subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=300)
+    return [match.groups() for match in map(_ARG_RE.match, result.stdout.splitlines()) if match]
+
+
+def side_tracks(path):
+    """Codec tags of the tracks that are neither picture nor sound, e.g. ["tmcd", "mebx"]."""
+    cmd = ["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,codec_tag_string,codec_name",
+           "-of", "json", str(path)]
+    try:
+        streams = json.loads(subprocess.run(cmd, capture_output=True, text=True, timeout=60).stdout).get("streams", [])
+    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
+        return []
+    tracks = []
+    for stream in streams:
+        if stream.get("codec_type") in ("data", "subtitle"):
+            tag = stream.get("codec_tag_string") or ""
+            tracks.append(tag if tag and not tag.startswith("[") else stream.get("codec_name") or stream["codec_type"])
+    return tracks
+
+
+def missing_metadata(src_path, dst_path, kept_as_text=()):
+    """Metadata of the original that the result lacks or has with another value, as "Group:Tag" names.
+    A value counts as kept when the same tag holds it in any group (exiftool may file a copy elsewhere), or when
+    its name is in kept_as_text (see metadata_as_text)."""
+    kept_as_text = set(kept_as_text)
+    src_entries, dst_entries = metadata_entries(src_path), metadata_entries(dst_path)
+    exact = set(dst_entries)
+    by_name = {(tag, value) for _, tag, value in dst_entries}
+    missing = []
+    for group, tag, value in src_entries:
+        if expected_to_change(group, tag):
+            continue
+        if (group, tag, value) in exact or (tag, value) in by_name or f"{group}:{tag}" in kept_as_text:
+            continue
+        name = f"{group}:{tag}"
+        if name not in missing:
+            missing.append(name)
+    # tracks of their own: timecode (tmcd), per-frame camera data (Apple mebx, Sony rtmd, GoPro gpmd), subtitles
+    src_tracks, dst_tracks = side_tracks(src_path), side_tracks(dst_path)
+    for tag in sorted(set(src_tracks)):
+        lost = src_tracks.count(tag) - dst_tracks.count(tag)
+        if lost > 0:
+            missing.append(f"Track:{tag}" + (f" ×{lost}" if lost > 1 else ""))
+    # the movie header's date is checked although the rest of that group is technical
+    created = next((v for g, t, v in src_entries if (g, t) == ("QuickTime", "CreateDate")), None)
+    if parse_exif_date(created) and ("QuickTime", "CreateDate", created) not in exact \
+            and "QuickTime:CreateDate" not in kept_as_text:
+        missing.append("QuickTime:CreateDate")
+    return missing
+
+
+# Old formats (AVI, AVCHD) keep their camera metadata in structures MP4 has no room for. The values that have a
+# standard field go there, so other programs show them; all of it is also kept as text in the settings tag.
+LEGACY_TAG_COPIES = [
+    "-Keys:Make<Make", "-Keys:Model<Model", "-XMP-tiff:Make<Make", "-XMP-tiff:Model<Model",
+    "-XMP-exif:DateTimeOriginal<DateTimeOriginal", "-XMP-exif:FNumber<FNumber", "-XMP-exif:ExposureTime<ExposureTime",
+    "-XMP-exif:ISO<ISO", "-XMP-exif:FocalLength<FocalLength", "-XMP-tiff:Software<Software", "-XMP-dc:Rights<Copyright",
+]
+MAX_TEXT_COPY_VALUE = 256 * 1024   # larger embedded files (e.g. preview videos) are left out of the text copy
+
+
+def is_quicktime(path):
+    """Whether path is an MP4/MOV (box structure with a moov), whose metadata can be copied as it is."""
+    from .boxes import top_level_boxes
+    try:
+        return any(box[0] == b"moov" for box in top_level_boxes(path))
+    except (OSError, ValueError):
+        return False
+
+
+def metadata_as_text(path):
+    """{"Group:Tag": value} of all metadata of path that a compressed copy cannot keep as it is; binary values
+    (e.g. a thumbnail) as "base64:..." strings."""
+    cmd = ["exiftool", "-config", str(EXIFTOOL_CONFIG), "-j", "-a", "-G1", "-b", "-api", "LargeFileSupport=1",
+           "-charset", "filename=utf8", str(path)]
+    try:
+        entries = json.loads(subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=300).stdout)[0]
+    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError, IndexError):
+        return {}
+    kept = {}
+    for name, value in entries.items():
+        group, _, tag = name.partition(":")
+        if not tag or expected_to_change(group, tag):
+            continue
+        if isinstance(value, str) and len(value) > MAX_TEXT_COPY_VALUE:
+            continue
+        kept[name] = value
+    return kept
+
+
 def source_description(src_path):
     """What the result was made from, for the settings record."""
     path = Path(src_path)

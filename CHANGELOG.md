@@ -14,6 +14,24 @@ All notable changes to the two apps and the shared core. The format follows
   version. The tooltip of the settings column shows it.
 - Changed: ffmpeg's container type fields (MajorBrand, MinorVersion, CompatibleBrands) are no longer copied into the
   result as if they were metadata of the camera.
+- New: the camera makers' own metadata (Nikon, Olympus, Panasonic, Fujifilm, Canon and others: camera and lens, focal
+  length, aperture, exposure, serial number, picture profile) is copied into the result byte for byte. exiftool can
+  read it but cannot write it into videos, so up to now it was lost: the results of Nikon and Olympus videos held
+  little more than the date.
+- New: after each video the metadata of original and result are compared. What did not come over is listed in the
+  status tooltip with "⚠ metadata?" and kept in the result, so the warning is still there later.
+- New: tracks that are neither picture nor sound are carried over unchanged: the per-frame metadata of iPhone videos
+  (detected faces, orientation, Live Photo data), subtitles, and likewise the GPS and telemetry tracks of other
+  cameras. ffmpeg cannot write most of them, so they were lost. A timecode track is written by ffmpeg as before. A
+  one-second test run carries no tracks over.
+- New: the metadata a picture or sound track carries itself is copied too: newer iPhones keep lens, focal length,
+  aperture and maker notes there.
+- New: old formats (AVI, AVCHD), whose camera metadata MP4 has no room for: make, model, dates, aperture, exposure,
+  ISO, focal length, software and copyright go into standard fields, and all their metadata (with small images such
+  as the camera's thumbnail) is kept as text in the result's settings tag.
+- The metadata comparison leaves out what compressing changes by its nature: stream details of AVI and AVCHD (codec,
+  rates, counts), positions inside the file, and the Photos library signature of iPhone videos, which a compressed
+  copy deliberately does not take over so the Photos app does not mistake it for the original.
 
 ### Analysis Helper
 - Changed: when a transcription replaces an existing EAF file, the earlier one goes to the trash.

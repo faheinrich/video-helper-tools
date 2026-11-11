@@ -378,11 +378,15 @@ def test_encoder_runs_with_lower_priority_when_asked(qapp, tmp_path, low_priorit
     duration, fps, audio = get_video_info(clip)
     proc, error, message, _ = worker.start_video_process(clip, tmp_path / "dst" / "a_archived.mp4", duration, fps, audio)
     assert proc is not None, f"{error}: {message}"
-    nice = int(subprocess.run(["ps", "-o", "nice=", "-p", str(proc.pid)], capture_output=True, text=True).stdout.strip() or "-99")
+    def nice_of(pid):
+        return int(subprocess.run(["ps", "-o", "nice=", "-p", str(pid)], capture_output=True, text=True).stdout.strip() or "-99")
+
+    nice = nice_of(proc.pid)
     proc.kill()
     proc.communicate(timeout=30)
-    # relative to this process: CI runners do not start at nice 0
-    base = os.nice(0)
+    # relative to this process (CI runners do not start at nice 0), measured the same way: on GitHub's macOS runners
+    # os.nice(0) and ps did not agree
+    base = nice_of(os.getpid())
     assert nice == (min(19, base + 10) if low_priority else base)
 
 

@@ -212,7 +212,8 @@ class RsyncSyncGUI(QWidget):
             self.keep_awake.stop()
 
     def stop_sync(self):
-        if self.process.state() == QProcess.Running:
+        # also while it is still starting: then "Running" is not reached yet and the stop was lost
+        if self.process.state() != QProcess.NotRunning:
             self.stopped_by_user = True
             self.process.kill()
             self.append_log(tr("Process stopped by user."))

@@ -13,7 +13,12 @@ build-backend = "hatchling.build"
 packages = ["video_helper_core"]
 
 [dependency-groups]
-dev = ["pytest>=9.1.1", "pytest-cov>=7.1.0", "pytest-timeout"]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "pytest-timeout",
+    "pytest-xdist>=3.8.0",
+]
 
 [tool.pytest.ini_options]
 # A hanging test (seen once on Linux CI) fails with a stack trace instead of stalling the whole run.

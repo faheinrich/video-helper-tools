@@ -2,6 +2,7 @@ import json
 import shutil
 import subprocess
 import sys
+import time
 
 import pytest
 from PySide6.QtWidgets import QMessageBox
@@ -180,8 +181,10 @@ def test_stopping_a_backup_by_hand_sends_no_notification(rsync, tmp_path, monkey
     rsync.start_sync()
     while rsync.process.state() != QProcess.Running:
         spin(10)
-    rsync.stop_sync()
-    wait_for(rsync.process.finished)
+    begin = time.monotonic()
+    rsync.stop_sync()   # right away, while the process may still be starting
+    wait_for(rsync.process.finished, timeout_ms=10_000)
+    assert time.monotonic() - begin < 5   # stopped, not waited out
     spin(50)
     assert notified == [] and rsync.keep_awake.stops == 1
 
@@ -203,5 +206,7 @@ def test_backup_keep_awake_checkbox_decides(rsync, tmp_path, monkeypatch):
     assert rsync.keep_awake.starts == 0
     rsync.cb_keep_awake.setChecked(True)
     assert rsync.keep_awake.starts == 1
-    rsync.stop_sync()
-    wait_for(rsync.process.finished)
+    begin = time.monotonic()
+    rsync.stop_sync()   # right away, while the process may still be starting
+    wait_for(rsync.process.finished, timeout_ms=10_000)
+    assert time.monotonic() - begin < 5   # stopped, not waited out

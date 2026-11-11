@@ -9,7 +9,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-latest]   # Linux fixed: ubuntu-latest moved to Ubuntu 26
+        os: [ubuntu-24.04, macos-latest, windows-latest]   # Linux fixed: ubuntu-latest moved to Ubuntu 26
         package: [video-helper-core, archive-helper, analysis-helper]
         include:   # adds the folder to the combinations of the same package
           - {package: video-helper-core, dir: core}
@@ -23,15 +23,15 @@ jobs:
         with:
           enable-cache: true
       # Not from apt: its mirrors at times hang for many minutes (see the script).
-      - name: Install ffmpeg (Linux)
+      - name: Install ffmpeg (Linux, Windows)
         id: ffmpeg
-        if: runner.os == 'Linux'
+        if: runner.os != 'macOS'
         continue-on-error: true   # a download that breaks off once is tried again below
         uses: FedericoCarboni/setup-ffmpeg@v3
         with:
           github-token: ${{ github.server_url == 'https://github.com' && github.token || '' }}
-      - name: Install ffmpeg, second try (Linux)
-        if: runner.os == 'Linux' && steps.ffmpeg.outcome == 'failure'
+      - name: Install ffmpeg, second try (Linux, Windows)
+        if: runner.os != 'macOS' && steps.ffmpeg.outcome == 'failure'
         uses: FedericoCarboni/setup-ffmpeg@v3
         with:
           github-token: ${{ github.server_url == 'https://github.com' && github.token || '' }}
@@ -39,6 +39,10 @@ jobs:
         if: runner.os == 'Linux'
         timeout-minutes: 12
         run: .github/scripts/linux_deps.sh --exiftool
+      - name: Install exiftool (Windows)
+        if: runner.os == 'Windows'
+        timeout-minutes: 10
+        run: choco install exiftool -y --no-progress
       - name: Install ffmpeg and exiftool (macOS)
         if: runner.os == 'macOS'
         timeout-minutes: 10
@@ -50,7 +54,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          uv run --package ${{ matrix.package }} pytest --junitxml=junit.xml --cov --cov-report=term-missing \
+          uv run --package ${{ matrix.package }} pytest -n auto --junitxml=junit.xml --cov --cov-report=term-missing \
             --cov-report=xml --cov-report=html 2>&1 | tee pytest.log
         env:
           QT_QPA_PLATFORM: offscreen

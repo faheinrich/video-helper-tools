@@ -732,3 +732,17 @@ def test_the_time_of_the_whole_folder_is_estimated_and_remembered(qapp, tmp_path
         seconds, exact = speeds.estimate(settings, 1, 3600)
         assert exact and seconds > 0
     dialog.close()
+
+
+@requires_ffmpeg
+def test_nothing_starts_after_the_lab_is_closed(qapp, lab):
+    # Regression: the frame timer or the end of an encoding started a new ffmpeg thread for a closed dialog;
+    # when that dialog was deleted while it ran, Qt aborted the whole app.
+    lab.frame_timer.start()
+    lab.close()
+    before = lab.frame_worker
+    lab.load_frames()                  # what the timer or a finished encoding would do now
+    lab.encode()
+    spin(400)                          # longer than the frame timer
+    assert lab.frame_worker is before and (before is None or not before.isRunning())
+    assert lab.lab_worker is None or not lab.lab_worker.isRunning()

@@ -416,6 +416,7 @@ class CompressionLabDialog(QDialog):
         self.hdr = bool(get_hdr_color(self.src))
         self.tmpdir = Path(tempfile.mkdtemp(prefix="vht-lab-"))
         self.lab_worker = self.frame_worker = None
+        self.closed = False
         self.variant_files = {}      # uid -> path of the encoded part
         self.results = {}            # uid -> (bytes, seconds)
         self.result_text = {}        # uid -> text shown when the variant is up to date
@@ -677,6 +678,8 @@ class CompressionLabDialog(QDialog):
                                     seconds=self.frame_position, number=int(round(self.frame_position * fps))))
 
     def load_frames(self):
+        if self.closed:
+            return   # a timer or a finished encoding after closing: no new ffmpeg for a dialog that is gone
         if self.frame_worker is not None:
             self.frame_worker.stop()
             self.frame_worker.wait()
@@ -726,6 +729,8 @@ class CompressionLabDialog(QDialog):
 
     def encode(self):
         """Encodes the variants that are new or changed; the others keep their result."""
+        if self.closed:
+            return
         if self.encoding():
             return
         pending = [c for c in self.columns if not self.is_up_to_date(c)]
@@ -857,6 +862,8 @@ class CompressionLabDialog(QDialog):
         super().done(result)
 
     def cleanup(self):
+        self.closed = True
+        self.frame_timer.stop()
         for worker in (self.lab_worker, self.frame_worker):
             if worker is not None and worker.isRunning():
                 worker.stop()

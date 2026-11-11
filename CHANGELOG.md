@@ -6,6 +6,14 @@ All notable changes to the two apps and the shared core. The format follows
 
 ## [Unreleased]
 
+### Archive Helper
+- Fixed: "Stop" in the backup page did nothing while rsync was still starting.
+- Fixed: closing the compression lab while a frame was about to load (or an encoding was ending) started ffmpeg for
+  the closed window; quitting the app at that moment could make it crash.
+
+### Development
+- Tests run in parallel (pytest-xdist), locally and on GitHub; on GitHub also on Windows, for all three packages.
+
 ## [analysis-v0.0.3] - 2026-11-11
 
 Analysis Helper `analysis-v0.0.3`. Archive Helper is not released this time.

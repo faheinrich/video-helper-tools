@@ -21,8 +21,10 @@ done
 if [ ${#missing[@]} -gt 0 ]; then
   echo "::notice title=Qt libraries::installing ${missing[*]}"
   apt="sudo timeout 300 apt-get -o Acquire::Retries=3"
-  $apt install -y --no-install-recommends "${missing[@]}" \
-    || { $apt update && $apt install -y --no-install-recommends "${missing[@]}"; }
+  # --reinstall: on GitHub's image a package can count as installed while its library file is gone, and then a plain
+  # install does nothing
+  $apt install -y --reinstall --no-install-recommends "${missing[@]}" \
+    || { $apt update && $apt install -y --reinstall --no-install-recommends "${missing[@]}"; }
   sudo ldconfig   # the cache may not list a library installed a moment ago yet
   for package in "${missing[@]}"; do
     # a warning, not a failure: the tests run offscreen and show it themselves if Qt cannot load something

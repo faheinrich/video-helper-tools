@@ -16,7 +16,7 @@ jobs:
           - {package: archive-helper, dir: archive-helper}
           - {package: analysis-helper, dir: analysis-helper}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -51,6 +51,8 @@ jobs:
       - run: uv sync --package ${{ matrix.package }} --group dev
       - name: Run tests with coverage
         working-directory: ${{ matrix.dir }}
+        # below the job's limit, so that a hang fails only this step and the annotations below still show why
+        timeout-minutes: 28
         shell: bash
         run: |
           set -o pipefail

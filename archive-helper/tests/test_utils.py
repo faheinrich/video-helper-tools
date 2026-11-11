@@ -1,4 +1,5 @@
 import os
+import sys
 
 import pytest
 
@@ -86,7 +87,10 @@ def test_copy_file_times_copies_creation_time(tmp_path):
     src, dst = tmp_path / "src.mov", tmp_path / "dst.mp4"
     src.write_bytes(b"a")
     old = 1_700_000_000  # November 2023
-    os.utime(src, (old, old))  # moves the creation time back, too
+    os.utime(src, (old, old))  # on macOS this moves the creation time back, too
+    if sys.platform == "win32":
+        from archive_helper.compressor.utils import set_windows_creation_time
+        set_windows_creation_time(src, old)   # Windows keeps it, so it is set directly
     later = old + 86400 * 30
     os.utime(src, (later, later))  # a later modification keeps the creation time
     dst.write_bytes(b"b")

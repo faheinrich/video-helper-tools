@@ -15,13 +15,14 @@ def escape(text):
 
 report = Path(sys.argv[1])
 log = Path(sys.argv[2]) if len(sys.argv) > 2 else None
-# A crashed test process leaves no report entry with a reason; its stack is only in the log.
+# A crashed or hanging test leaves no report entry with a reason; its stack is only in the log.
 if log is not None and log.exists():
     lines = log.read_text(errors="replace").splitlines()
     for start, line in enumerate(lines):
-        if "Fatal Python error" in line:
-            stack = [l.strip() for l in lines[start:start + 60] if l.strip()]
-            print(f"::error title=Test process crashed::{escape(chr(10).join(stack)[:3500])}")
+        if "Fatal Python error" in line or "Timeout +++" in line:
+            title = "Test process crashed" if "Fatal" in line else "Test hung (timeout)"
+            stack = [l.strip() for l in lines[start:start + 80] if l.strip()]
+            print(f"::error title={title}::{escape(chr(10).join(stack)[:3500])}")
 if not report.exists():
     if log is not None and log.exists():
         tail = [line for line in log.read_text(errors="replace").splitlines() if line.strip()][-30:]

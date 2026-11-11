@@ -38,6 +38,12 @@ jobs:
         run: brew install ffmpeg exiftool
       # Only this package's dependencies (the archive app does not need PyTorch).
       - run: uv sync --package ${{ matrix.package }} --group dev
+      # Names every library Qt cannot find on Linux at once (as annotations), instead of one per failed run.
+      - name: Libraries Qt cannot find (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          find .venv -path "*PySide6*" -name "*.so*" -exec ldd {} \; 2>/dev/null | grep "not found" | sort -u \
+            | sed 's/^\s*/::warning title=Missing library::/' || true
       - name: Run tests with coverage
         working-directory: ${{ matrix.dir }}
         shell: bash

@@ -8,6 +8,8 @@ set -euo pipefail
 declare -A libraries=(
   [libegl1]=libEGL.so.1 [libgl1]=libGL.so.1 [libxkbcommon0]=libxkbcommon.so.0
   [libdbus-1-3]=libdbus-1.so.3 [libfontconfig1]=libfontconfig.so.1 [libxcb-cursor0]=libxcb-cursor.so.0
+  # QtMultimedia (players, audio): came along with apt's ffmpeg before
+  [libpulse0]=libpulse.so.0 [libpulse-mainloop-glib0]=libpulse-mainloop-glib.so.0 [libasound2t64]=libasound.so.2
 )
 has_library() {   # not "ldconfig -p | grep -q": with pipefail, grep stopping early fails the pipe
   local known

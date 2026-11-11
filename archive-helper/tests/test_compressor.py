@@ -925,7 +925,7 @@ def test_csv_export_reports_unwritable_target(qapp, make_gui, tmp_path, monkeypa
     monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (str(tmp_path / "no" / "dir.csv"), "")))
     monkeypatch.setattr(QMessageBox, "critical", staticmethod(lambda *a, **k: shown.append(a[2])))
     gui.export_logs()
-    assert shown and str(tmp_path) in shown[0]
+    assert shown and "dir.csv" in shown[0]   # the path itself is quoted the system's way (doubled backslashes on Windows)
 
 
 def test_columns_can_be_dragged_and_stay_put_when_the_window_resizes(qapp, make_gui):

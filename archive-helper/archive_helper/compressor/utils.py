@@ -332,13 +332,16 @@ def read_compression_settings(paths):
         entries = json.loads(result.stdout or "[]")
     except (OSError, json.JSONDecodeError):
         return {}
+    # exiftool names the files its own way (with "/" on Windows): back to the names as they were given
+    given = {os.path.normcase(os.path.normpath(p)): p for p in paths}
     found = {}
     for entry in entries:
         raw = entry.get("CompressionSettings")
         if not raw:
             continue
+        name = given.get(os.path.normcase(os.path.normpath(entry.get("SourceFile", ""))), entry.get("SourceFile"))
         try:
-            found[entry["SourceFile"]] = json.loads(raw)
+            found[name] = json.loads(raw)
         except (json.JSONDecodeError, TypeError):
             continue
     return found

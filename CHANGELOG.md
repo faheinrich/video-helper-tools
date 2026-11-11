@@ -11,6 +11,9 @@ All notable changes to the two apps and the shared core. The format follows
 - Fixed: closing the compression lab while a frame was about to load (or an encoding was ending) started ffmpeg for
   the closed window; quitting the app at that moment could make it crash.
 - Fixed: cancelling in the compression lab right as an encoding was about to start let that encoding run to its end.
+- Fixed (Windows): the settings column stayed empty and missing metadata was not flagged, because exiftool names the
+  files with "/" and the stored settings were looked up with "\".
+- Fixed (Windows): a folder dropped onto a path field showed "/" instead of the system's "\".
 
 ### Development
 - Tests run in parallel (pytest-xdist), locally and on GitHub; on GitHub also on Windows, for all three packages.

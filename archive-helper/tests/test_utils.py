@@ -116,3 +116,17 @@ def test_old_thumbnails_are_pruned_and_the_cache_can_be_cleared(tmp_path):
     assert prune_thumbnails() == 1 and not old.exists() and fresh.exists()
     duration_cache_file().write_text("{}")
     assert clear_caches() == 22 and not fresh.exists() and not duration_cache_file().exists()
+
+
+def test_stored_settings_are_found_under_the_name_they_were_asked_for(tmp_path, monkeypatch):
+    # Regression (Windows): exiftool writes the names with "/", so a lookup with the path as given ("\") found
+    # nothing and the settings column stayed empty. Here exiftool answers with an equivalent spelling of the path.
+    import json
+    import subprocess
+    from types import SimpleNamespace
+    from archive_helper.compressor import utils
+
+    video = tmp_path / "a_archived.mp4"
+    answer = [{"SourceFile": str(tmp_path / "sub" / ".." / "a_archived.mp4"), "CompressionSettings": '{"crf": 20}'}]
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: SimpleNamespace(stdout=json.dumps(answer)))
+    assert utils.read_compression_settings([video]) == {str(video): {"crf": 20}}

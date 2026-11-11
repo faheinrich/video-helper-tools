@@ -70,7 +70,7 @@ class DropLineEdit(QLineEdit):
         if event.mimeData().hasUrls():
             url = event.mimeData().urls()[0]
             if url.isLocalFile():
-                self.setText(url.toLocalFile())
+                self.setText(str(Path(url.toLocalFile())))   # with the system's separators (backslashes on Windows), as if typed
             event.acceptProposedAction()
         else:
             super().dropEvent(event)

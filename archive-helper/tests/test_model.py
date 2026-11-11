@@ -13,6 +13,10 @@ def row(name, size=100, status="planned", **kwargs):
     return VideoRow(src=Path("/src") / name, dst=Path("/dst") / name, size=size, status=status, root=Path("/src"), **kwargs)
 
 
+# Rows are keyed by str(path), which has the system's separators (backslashes on Windows).
+SRC_B, SRC_A = str(Path("/src/b.mp4")), str(Path("/src/A.mp4"))
+
+
 @pytest.fixture
 def model(qapp):
     m = VideoTableModel()
@@ -72,7 +76,7 @@ def test_model_display_data(model):
     assert text(0, COL_FILE) == "b.mp4" and text(0, COL_DURATION) == "1:05" and text(2, COL_DURATION) == "–"
     assert text(1, COL_RESULT).endswith("(-50 %)") and text(0, COL_RESULT) == "–"
     assert text(0, COL_SETTINGS) == "" and text(1, COL_SETTINGS) == "–"
-    assert model.data(model.index(0, COL_FILE), Qt.ToolTipRole) == "/src/b.mp4"
+    assert model.data(model.index(0, COL_FILE), Qt.ToolTipRole) == SRC_B
     assert model.data(model.index(0, COL_SIZE), Qt.TextAlignmentRole) is not None
     assert model.data(model.index(0, COL_FILE), Qt.TextAlignmentRole) is None
     assert model.data(model.index(99, 0)) is None
@@ -92,12 +96,12 @@ def test_larger_results_are_highlighted(qapp):
 def test_update_log_and_counts(model):
     changes = []
     model.changed.connect(lambda: changes.append(1))
-    model.update("/src/b.mp4", status="running", progress=10)
-    assert model.row_for("/src/b.mp4").progress == 10 and changes
+    model.update(SRC_B, status="running", progress=10)
+    assert model.row_for(SRC_B).progress == 10 and changes
     model.update("/nope", status="done")  # unknown paths are ignored
     for number in range(500):
-        model.append_log("/src/b.mp4", f"line {number}")
-    assert 0 < len(model.row_for("/src/b.mp4").log) < 500 and model.row_for("/src/b.mp4").log[-1] == "line 499"
+        model.append_log(SRC_B, f"line {number}")
+    assert 0 < len(model.row_for(SRC_B).log) < 500 and model.row_for(SRC_B).log[-1] == "line 499"
     model.append_log("/nope", "ignored")
     assert model.counts() == {"running": 1, "done": 1, "error": 1}
 
@@ -105,12 +109,12 @@ def test_update_log_and_counts(model):
 def test_thumbnails_are_stored_only_when_valid(model):
     from PySide6.QtGui import QPixmap
 
-    model.set_thumbnail("/src/b.mp4", None)
-    model.set_thumbnail("/src/b.mp4", QPixmap())
+    model.set_thumbnail(SRC_B, None)
+    model.set_thumbnail(SRC_B, QPixmap())
     model.set_thumbnail("/nope", QPixmap(4, 4))
     assert model.thumbnails == {}
-    model.set_thumbnail("/src/b.mp4", QPixmap(4, 4))
-    assert "/src/b.mp4" in model.thumbnails
+    model.set_thumbnail(SRC_B, QPixmap(4, 4))
+    assert SRC_B in model.thumbnails
 
 
 def test_sorting_by_file_keeps_folders_together():
@@ -167,9 +171,9 @@ def test_delegates_paint_and_size_every_row(qapp, model):
 
     from archive_helper.compressor.model import COL_THUMB, FileDelegate, StatusDelegate, ThumbnailDelegate
 
-    model.update("/src/b.mp4", status="running", progress=50, speed="1.5x", note="hello")
+    model.update(SRC_B, status="running", progress=50, speed="1.5x", note="hello")
     model.rows[0].duplicate = True
-    model.set_thumbnail("/src/A.mp4", QPixmap(32, 32))
+    model.set_thumbnail(SRC_A, QPixmap(32, 32))
     canvas = QPixmap(600, 100)
     painter = QPainter(canvas)
     delegates = {COL_THUMB: ThumbnailDelegate(model), COL_FILE: FileDelegate(model), COL_STATUS: StatusDelegate()}

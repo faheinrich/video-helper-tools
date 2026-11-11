@@ -24,7 +24,14 @@ jobs:
           enable-cache: true
       # Not from apt: its mirrors at times hang for many minutes (see the script).
       - name: Install ffmpeg (Linux)
+        id: ffmpeg
         if: runner.os == 'Linux'
+        continue-on-error: true   # a download that breaks off once is tried again below
+        uses: FedericoCarboni/setup-ffmpeg@v3
+        with:
+          github-token: ${{ github.server_url == 'https://github.com' && github.token || '' }}
+      - name: Install ffmpeg, second try (Linux)
+        if: runner.os == 'Linux' && steps.ffmpeg.outcome == 'failure'
         uses: FedericoCarboni/setup-ffmpeg@v3
         with:
           github-token: ${{ github.server_url == 'https://github.com' && github.token || '' }}

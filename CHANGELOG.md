@@ -29,6 +29,12 @@ All notable changes to the two apps and the shared core. The format follows
 - New: old formats (AVI, AVCHD), whose camera metadata MP4 has no room for: make, model, dates, aperture, exposure,
   ISO, focal length, software and copyright go into standard fields, and all their metadata (with small images such
   as the camera's thumbnail) is kept as text in the result's settings tag.
+- New: results made by an earlier version can get the metadata that version did not carry over, from their original,
+  without compressing again (`add_missing_metadata`). The picture stays bit for bit the same; the work is done on a
+  hidden copy that replaces the result in one step, and the result keeps its file date.
+- The XMP packet of the original is copied as a whole, so structures exiftool cannot write field by field (e.g. the
+  editing history of Adobe programs) come along. Boxes and tracks also go into files whose media data follows the
+  moov box (as exiftool writes them); the sample offsets move along.
 - The metadata comparison leaves out what compressing changes by its nature: stream details of AVI and AVCHD (codec,
   rates, counts), positions inside the file, and the Photos library signature of iPhone videos, which a compressed
   copy deliberately does not take over so the Photos app does not mistake it for the original.

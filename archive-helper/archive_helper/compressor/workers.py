@@ -462,50 +462,18 @@ class ArchiveWorker(QThread):
 
         # Metadata copy is best-effort: a failure here (e.g. exotic tags, missing
         # exiftool) must not throw away an otherwise successfully compressed video.
-        metadata_warning = ""
         record = None
-        # First: exiftool keeps boxes and tracks it cannot write itself, so they must be in place before it runs.
-        # A test run is a second long: tracks of the whole video would not fit it. The comparison below reports
-        # whatever does not come over.
-        if not self.settings.get('dry_run'):
-            try:
-                transplant_tracks(src_path, partial)
-            except (OSError, BoxError, struct.error, ValueError) as e:
-                print(f"Tracks of {src_path.name} not carried over: {e}")
-        try:
-            copy_track_metadata(src_path, partial)
-        except (OSError, BoxError, struct.error) as e:
-            print(f"Track metadata of {src_path.name} not copied: {e}")
-        try:
-            copy_maker_boxes(src_path, partial)
-        except (OSError, BoxError, struct.error) as e:
-            print(f"Maker boxes of {src_path.name} not copied: {e}")
         try:
             date_arguments, date_from = capture_date_arguments(src_path)
             record = self.settings_record(src_path, source_description(src_path), date_from)
-            legacy = not is_quicktime(src_path)
-            if legacy:
-                record["source_metadata"] = metadata_as_text(src_path)
-            # -config must come first; the settings tag and an added date go after the copy so it does not
-            # overwrite them. The file type fields of ffmpeg's container are not metadata of the video: left out.
-            subprocess.run(
-                ["exiftool", "-config", str(EXIFTOOL_CONFIG),
-                 "-tagsFromFile", str(src_path), "-all:all", "-gps*", "-Keys:all", "-UserData:all",
-                 "--MajorBrand", "--MinorVersion", "--CompatibleBrands",
-                 *(LEGACY_TAG_COPIES if legacy else []), *date_arguments, settings_tag_argument(record),
-                 str(partial), "-overwrite_original", "-q"], check=True)
         except Exception as e:
-            metadata_warning = tr(" ⚠️ (metadata could not be copied: {error})", error=e)
-        if record is not None and not metadata_warning:
-            try:
-                missing = missing_metadata(src_path, partial, record.get("source_metadata", {}))
-                if missing:
-                    # kept in the result, so the warning is still there after a restart
-                    record["metadata_missing"] = missing
-                    subprocess.run(["exiftool", "-config", str(EXIFTOOL_CONFIG), settings_tag_argument(record),
-                                    str(partial), "-overwrite_original", "-q"], check=True)
-            except Exception as e:
-                print(f"Metadata of {src_path.name} not compared: {e}")
+            print(f"Settings record of {src_path.name} not made: {e}")
+            date_arguments = []
+        # A test run is a second long: tracks of the whole video would not fit it.
+        metadata_warning = carry_metadata(src_path, partial, record, date_arguments,
+                                          tracks=not self.settings.get('dry_run'))
+        if metadata_warning:
+            record = None
         try:
             copy_file_times(src_path, partial)
         except OSError as e:
@@ -536,7 +504,7 @@ class ArchiveWorker(QThread):
         ratio = (dst_size / src_size) * 100 if src_size > 0 else 100.0
 
         data_dict = {'src_size': src_size, 'dst_size': dst_size, 'diff_size': diff_size, 'ratio': ratio,
-                     'settings': None if metadata_warning else record}
+                     'settings': record}
         result_msg = f"✅ FINISH: {src_path.name} | {format_size(src_size)} -> {format_size(dst_size)} ({ratio:.1f}%){metadata_warning}"
 
         if dst_size >= src_size:
@@ -569,6 +537,86 @@ class ArchiveWorker(QThread):
                 except:
                     pass
             partial_path(dst_path).unlink(missing_ok=True)   # only the unfinished file; an existing result stays
+
+
+
+def carry_metadata(src_path, target, record, date_arguments=(), tracks=True, extra_arguments=()):
+    """Gives target (an MP4 made from src_path) all metadata of src_path and stores record (the settings tag) in it.
+    Returns a warning text when exiftool failed, else "". Afterwards record["metadata_missing"] lists what did not
+    come over (also stored in the file)."""
+    # First: exiftool keeps boxes and tracks it cannot write itself, so they must be in place before it runs.
+    # The comparison at the end reports whatever does not come over.
+    if tracks:
+        try:
+            transplant_tracks(src_path, target)
+        except (OSError, BoxError, struct.error, ValueError) as e:
+            print(f"Tracks of {Path(src_path).name} not carried over: {e}")
+    try:
+        copy_track_metadata(src_path, target)
+    except (OSError, BoxError, struct.error) as e:
+        print(f"Track metadata of {Path(src_path).name} not copied: {e}")
+    try:
+        copy_maker_boxes(src_path, target)
+    except (OSError, BoxError, struct.error) as e:
+        print(f"Maker boxes of {Path(src_path).name} not copied: {e}")
+    if record is None:
+        record = {}
+    record.pop("metadata_missing", None)
+    try:
+        legacy = not is_quicktime(src_path)
+        if legacy:
+            record["source_metadata"] = metadata_as_text(src_path)
+        # -config must come first; the settings tag and an added date go after the copy so it does not
+        # overwrite them. The file type fields of ffmpeg's container are not metadata of the video: left out.
+        subprocess.run(
+            ["exiftool", "-config", str(EXIFTOOL_CONFIG),
+             # -XMP: the packet as a whole first, so structures exiftool cannot write tag by tag (Adobe's
+             # editing history) come along too
+             "-tagsFromFile", str(src_path), "-XMP", "-all:all", "-gps*", "-Keys:all", "-UserData:all",
+             "--MajorBrand", "--MinorVersion", "--CompatibleBrands",
+             *(LEGACY_TAG_COPIES if legacy else []), *date_arguments, *extra_arguments, settings_tag_argument(record),
+             str(target), "-overwrite_original", "-q"], check=True)
+    except Exception as e:
+        return tr(" ⚠️ (metadata could not be copied: {error})", error=e)
+    try:
+        missing = missing_metadata(src_path, target, record.get("source_metadata", {}))
+        if missing:
+            # kept in the result, so the warning is still there after a restart
+            record["metadata_missing"] = missing
+            subprocess.run(["exiftool", "-config", str(EXIFTOOL_CONFIG), settings_tag_argument(record),
+                            str(target), "-overwrite_original", "-q"], check=True)
+    except Exception as e:
+        print(f"Metadata of {Path(src_path).name} not compared: {e}")
+    return ""
+
+
+def add_missing_metadata(src_path, result_path):
+    """Gives a result made by an earlier version the metadata that version did not carry over (camera and lens
+    boxes, tracks, the video track's keys), without compressing again. Works on a hidden copy next to the result
+    that replaces it in one step at the end; the result's file times stay. Returns what is still missing."""
+    import datetime as dt
+    src_path, result_path = Path(src_path), Path(result_path)
+    work = result_path.with_name(f".{result_path.stem}.adding-metadata{result_path.suffix}")
+    shutil.copy2(result_path, work)
+    try:
+        record = dict(read_compression_settings([result_path]).get(str(result_path)) or {})
+        record.setdefault("source", source_description(src_path))
+        record["metadata_added_at"] = dt.datetime.now().astimezone().replace(microsecond=0).isoformat()
+        date_arguments, date_from = capture_date_arguments(src_path)
+        if date_from:
+            record["capture_date_from"] = date_from
+        src_duration, result_duration = get_video_info(src_path)[0], get_video_info(result_path)[0]
+        whole = bool(src_duration and result_duration and abs(src_duration - result_duration) < 1.5)
+        warning = carry_metadata(src_path, work, record, date_arguments, tracks=whole,
+                                 # left there by earlier versions: ffmpeg's container type, not the camera's
+                                 extra_arguments=["-Keys:MajorBrand=", "-Keys:MinorVersion=", "-Keys:CompatibleBrands="])
+        if warning:
+            raise OSError(warning.strip(" ⚠️()"))
+        copy_file_times(result_path, work)
+        os.replace(work, result_path)
+        return record.get("metadata_missing", [])
+    finally:
+        work.unlink(missing_ok=True)
 
 
 class CompareScanWorker(QThread):

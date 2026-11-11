@@ -114,15 +114,37 @@ def test_boxes_already_in_the_result_are_not_doubled_and_uuid_boxes_come_along(t
     assert [raw for _, raw in moov_uuids] == [canon] and [raw for _, raw in top_uuids] == [top]
 
 
-def test_a_result_with_media_data_after_the_moov_box_is_left_alone(tmp_path):
-    from archive_helper.compressor.boxes import BoxError, copy_maker_boxes
+@requires_exiftool
+def test_boxes_and_tracks_also_go_into_a_file_whose_media_data_follows_the_moov_box(tmp_path):
+    # exiftool (and faststart) put moov in front of the media data; a larger moov then moves all of it.
+    from archive_helper.compressor.boxes import copy_maker_boxes, copy_track_metadata, top_level_boxes, transplant_tracks
+    from archive_helper.compressor.utils import side_tracks
 
-    src = with_boxes(make_clip(tmp_path / "src.mov", size="320x240", seconds=1), nikon_box())
+    sub = tmp_path / "sub.srt"
+    sub.write_text("1\n00:00:00,000 --> 00:00:01,000\nHallo\n")
+    src = tmp_path / "src.mov"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(make_clip(tmp_path / "plain.mov", size="320x240", seconds=1)),
+                    "-i", str(sub), "-map", "0", "-map", "1", "-c", "copy", "-c:s", "mov_text", str(src)], check=True)
+    with_boxes(src, nikon_box())
+    subprocess.run(["exiftool", "-q", "-overwrite_original", "-VideoKeys:LensModel=back camera f/1.78", str(src)], check=True)
     dst = make_clip(tmp_path / "fast.mp4", size="320x240", seconds=1, extra=("-movflags", "+faststart"))
-    before = dst.read_bytes()
-    with pytest.raises(BoxError):
-        copy_maker_boxes(src, dst)
-    assert dst.read_bytes() == before
+    reference = subprocess.run(["ffmpeg", "-v", "error", "-i", str(dst), "-map", "0:v", "-f", "md5", "-"],
+                               capture_output=True, text=True, check=True).stdout
+    kinds = [b[0] for b in top_level_boxes(dst)]
+    assert kinds.index(b"moov") < kinds.index(b"mdat")
+
+    assert transplant_tracks(src, dst) == ["text"]
+    assert copy_track_metadata(src, dst) == ["vide meta"]
+    assert copy_maker_boxes(src, dst) == ["NCDT"]
+
+    assert nikon_tags(dst)[0] == "NIKKOR Z 24-70mm f/4 S" and side_tracks(dst) == ["text"]
+    # every picture is still where the tables say: same frames as before
+    assert subprocess.run(["ffmpeg", "-v", "error", "-i", str(dst), "-map", "0:v", "-f", "md5", "-"],
+                          capture_output=True, text=True, check=True).stdout == reference
+    subtitles = subprocess.run(["ffmpeg", "-v", "error", "-i", str(dst), "-map", "0:s", "-f", "srt", "-"],
+                               capture_output=True, text=True, check=True).stdout
+    assert "Hallo" in subtitles
+    assert [p.name for p in tmp_path.iterdir() if p.name.startswith(".")] == []
 
 
 def test_a_video_without_maker_boxes_is_not_touched(tmp_path):
@@ -239,3 +261,57 @@ def test_what_compressing_changes_by_its_nature_is_not_reported():
         assert expected_to_change(group, tag), (group, tag)
     for group, tag in [("RIFF", "DateTimeOriginal"), ("Nikon", "LensModel"), ("FujiFilm", "Quality"), ("Keys", "Make")]:
         assert not expected_to_change(group, tag), (group, tag)
+
+
+@requires_exiftool
+def test_missing_metadata_is_added_to_a_result_of_an_earlier_version(tmp_path):
+    # Earlier versions copied only what exiftool can write: the Nikon box, the video track's keys and the
+    # subtitle track were lost. They are added later without compressing again.
+    import os
+    from archive_helper.compressor.utils import missing_metadata, read_compression_settings, side_tracks
+    from archive_helper.compressor.workers import add_missing_metadata
+
+    sub = tmp_path / "sub.srt"
+    sub.write_text("1\n00:00:00,000 --> 00:00:01,000\nHallo\n")
+    src = tmp_path / "DSC_0007.MOV"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(make_clip(tmp_path / "plain.mov", size="320x240", seconds=2)),
+                    "-i", str(sub), "-map", "0", "-map", "1", "-c", "copy", "-c:s", "mov_text", str(src)], check=True)
+    with_boxes(src, nikon_box())
+    subprocess.run(["exiftool", "-q", "-overwrite_original", "-VideoKeys:LensModel=back camera f/1.78", str(src)], check=True)
+
+    old = tmp_path / "DSC_0007_archived.mp4"   # the way 0.0.4 made it
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(src), "-map", "0:V:0", "-map", "0:a?", "-c:v", "libx265",
+                    "-preset", "ultrafast", "-tag:v", "hvc1", "-c:a", "aac", str(old)], check=True)
+    from archive_helper.compressor.utils import EXIFTOOL_CONFIG
+    subprocess.run(["exiftool", "-config", str(EXIFTOOL_CONFIG), "-q", "-overwrite_original", "-tagsFromFile", str(src),
+                    "-all:all", "-Keys:all", "-UserData:all", '-XMP-vht:CompressionSettings={"version": 1, "crf": 20}',
+                    str(old)], check=True)
+    os.utime(old, (1_700_000_000, 1_700_000_000))
+    before = set(missing_metadata(src, old))
+    assert {"Nikon:LensModel", "Track:text"} <= before
+
+    assert add_missing_metadata(src, old) == []
+
+    assert nikon_tags(old)[0] == "NIKKOR Z 24-70mm f/4 S"
+    assert side_tracks(old) == ["text"]
+    assert missing_metadata(src, old) == []
+    record = read_compression_settings([old])[str(old)]
+    assert record["crf"] == 20 and record["metadata_added_at"] and record["source"]["name"] == "DSC_0007.MOV"
+    assert old.stat().st_mtime == 1_700_000_000                   # the result keeps its file date
+    assert [p.name for p in tmp_path.iterdir() if p.name.startswith(".")] == []   # no work copy left
+    decode = subprocess.run(["ffmpeg", "-v", "error", "-i", str(old), "-f", "null", "-"], capture_output=True, text=True)
+    assert decode.returncode == 0 and decode.stderr == ""
+
+
+@requires_exiftool
+def test_adding_metadata_leaves_the_result_alone_when_it_fails(tmp_path, monkeypatch):
+    from archive_helper.compressor import workers
+
+    src = make_clip(tmp_path / "a.mov", size="320x240", seconds=1)
+    old = make_clip(tmp_path / "a_archived.mp4", size="320x240", seconds=1)
+    before = old.read_bytes()
+    monkeypatch.setattr(workers, "carry_metadata", lambda *a, **k: " ⚠️ (metadata could not be copied: boom)")
+    with pytest.raises(OSError):
+        workers.add_missing_metadata(src, old)
+    assert old.read_bytes() == before
+    assert [p.name for p in tmp_path.iterdir() if p.name.startswith(".")] == []

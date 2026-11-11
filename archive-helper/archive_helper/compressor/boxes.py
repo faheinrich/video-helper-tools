@@ -8,6 +8,8 @@ keeps them readable in the result exactly as in the original.
 Only boxes that hold no offsets into the media data are copied (user data and uuid boxes): the video and sound of
 the result are ffmpeg's, so the original's sample tables mean nothing there.
 """
+import os
+import shutil
 import struct
 from pathlib import Path
 
@@ -121,10 +123,6 @@ def copy_maker_boxes(src_path, dst_path):
     moov = next((b for b in top if b[0] == b"moov"), None)
     if moov is None:
         raise BoxError("no moov box")
-    # The new moov is larger. That only leaves the sample offsets valid when no media data follows it.
-    if any(b[0] == b"mdat" and b[1] > moov[1] for b in top):
-        raise BoxError("media data after the moov box")
-
     data = read_box(dst_path, moov)
     children, udta_payload, have = [], b"", set()
     for box in iter_boxes(data, moov[2]):
@@ -136,7 +134,7 @@ def copy_maker_boxes(src_path, dst_path):
             continue
         if box[0] == b"uuid":
             have.add(box_key(data, box))
-        children.append(raw)
+        children.append((raw, box[0] == b"trak"))
     copied = []
     for key, raw in udta_children:
         if key not in have:
@@ -145,7 +143,7 @@ def copy_maker_boxes(src_path, dst_path):
             copied.append(key[:4].decode("latin-1"))
     for key, raw in moov_uuids:
         if key not in have:
-            children.append(raw)
+            children.append((raw, False))
             have.add(key)
             copied.append("uuid " + key[4:].hex())
     top_have = {box_key(read_box(dst_path, b), (b[0], 0, b[2], b[3])) for b in top if b[0] == b"uuid"}
@@ -154,18 +152,7 @@ def copy_maker_boxes(src_path, dst_path):
     if not copied:
         return []
 
-    new_moov = make_box(b"moov", b"".join(children) + make_box(b"udta", udta_payload))
-    # Whatever followed moov (free space, other boxes) is kept after it.
-    with open(dst_path, "rb") as f:
-        f.seek(moov[1] + moov[3])
-        after = f.read()
-    with open(dst_path, "r+b") as f:
-        f.seek(moov[1])
-        f.write(new_moov)
-        f.write(after)
-        for raw in tail:
-            f.write(raw)
-        f.truncate()
+    write_moov(dst_path, top, moov, children + [(make_box(b"udta", udta_payload), False)], tail=tail)
     return copied
 
 
@@ -249,6 +236,65 @@ def rebuild(data, box, change):
     return data[box[1]:box[1] + box[3]] if new is None else new
 
 
+def shift_offsets(trak_raw, delta, from_offset):
+    """trak_raw with its chunk offsets at or after from_offset moved by delta."""
+    box = next(iter_boxes(trak_raw))
+
+    def change(kind, body):
+        if kind not in (b"stco", b"co64"):
+            return None
+        count = struct.unpack(">I", body[4:8])[0]
+        wide = kind == b"co64"
+        offsets = struct.unpack(f">{count}{'Q' if wide else 'I'}", body[8:8 + count * (8 if wide else 4)])
+        offsets = [o + delta if o >= from_offset else o for o in offsets]
+        if not wide and any(o > 0xFFFFFFFF for o in offsets):
+            raise BoxError("chunk offsets beyond 4 GB")
+        return make_box(kind, body[:8] + struct.pack(f">{count}{'Q' if wide else 'I'}", *offsets))
+
+    return rebuild(trak_raw, box, change)
+
+
+def write_moov(dst_path, top, moov, children, prefix=b"", tail=()):
+    """Replaces dst's moov by one made of children [(raw box, holds offsets into the file)]; prefix goes right
+    in front of it (a media data box), tail at the end of the file. When the media data follows moov (as after
+    exiftool or with faststart), the file is written anew and the chunk offsets moved by the change in size."""
+    dst_path = Path(dst_path)
+    mdat_after = any(b[0] == b"mdat" and b[1] > moov[1] for b in top)
+    if mdat_after:
+        size = len(make_box(b"moov", b"".join(raw for raw, _ in children)))
+        delta = len(prefix) + size - moov[3]
+        if delta:
+            children = [(shift_offsets(raw, delta, moov[1] + moov[3]) if shifts else raw, shifts)
+                        for raw, shifts in children]
+    new_moov = make_box(b"moov", b"".join(raw for raw, _ in children))
+    if not mdat_after:
+        with open(dst_path, "rb") as f:
+            f.seek(moov[1] + moov[3])
+            after = f.read()   # only small boxes: no media data follows
+        with open(dst_path, "r+b") as f:
+            f.seek(moov[1])
+            f.write(prefix)
+            f.write(new_moov)
+            f.write(after)
+            for raw in tail:
+                f.write(raw)
+            f.truncate()
+        return
+    temp = dst_path.with_name(f".{dst_path.name}.rewriting")
+    try:
+        with open(dst_path, "rb") as source, open(temp, "wb") as out:
+            out.write(source.read(moov[1]))
+            out.write(prefix)
+            out.write(new_moov)
+            source.seek(moov[1] + moov[3])
+            shutil.copyfileobj(source, out, 16 * 1024 * 1024)
+            for raw in tail:
+                out.write(raw)
+        os.replace(temp, dst_path)
+    finally:
+        temp.unlink(missing_ok=True)
+
+
 def transplant_track(src_data, trak, src_path, new_id, id_map, timescale_ratio, data_start, blob):
     """The trak rebuilt for the result: new id, references and durations, chunks appended to blob (a bytearray
     whose first byte will be at data_start in the result)."""
@@ -320,8 +366,6 @@ def transplant_tracks(src_path, dst_path):
     moov = next((b for b in top if b[0] == b"moov"), None)
     if moov is None:
         raise BoxError("no moov box")
-    if any(b[0] == b"mdat" and b[1] > moov[1] for b in top):
-        raise BoxError("media data after the moov box")
     data = read_box(dst_path, moov)
     moov_box = (moov[0], 0, moov[2], moov[3])
     dst_traks = [b for b in iter_boxes(data, moov[2]) if b[0] == b"trak"]
@@ -363,20 +407,11 @@ def transplant_tracks(src_path, dst_path):
 
     data = bytearray(data)
     data[next_at:next_at + 4] = struct.pack(">I", next_id)
-    children = [bytes(data[b[1]:b[1] + b[3]]) for b in iter_boxes(bytes(data), moov[2])]
+    # the new tracks' offsets already point into the new media data box, which stays where it is put
+    children = [(bytes(data[b[1]:b[1] + b[3]]), b[0] == b"trak") for b in iter_boxes(bytes(data), moov[2])]
     last_trak = max(i for i, b in enumerate(iter_boxes(bytes(data), moov[2])) if b[0] == b"trak")
-    children[last_trak + 1:last_trak + 1] = new_traks
-    new_moov = make_box(b"moov", b"".join(children))
-
-    with open(dst_path, "rb") as f:
-        f.seek(moov[1] + moov[3])
-        after = f.read()
-    with open(dst_path, "r+b") as f:
-        f.seek(moov[1])
-        f.write(mdat)
-        f.write(new_moov)
-        f.write(after)
-        f.truncate()
+    children[last_trak + 1:last_trak + 1] = [(raw, False) for raw in new_traks]
+    write_moov(dst_path, top, moov, children, prefix=mdat)
     return [info[2].decode("latin-1") for _, info in chosen]
 
 
@@ -385,7 +420,8 @@ TRACK_METADATA = (b"meta", b"udta")   # a track's own keys (Apple: lens, focal l
 
 def copy_track_metadata(src_path, dst_path):
     """Copies the metadata boxes of src's picture and sound tracks into the matching tracks of dst (matched in order
-    per kind) where dst's track has none of that box. They hold no offsets. Returns e.g. ["vide meta"]."""
+    per kind), replacing a box of that kind dst has: that one can only be a partial copy exiftool made of the same
+    original. They hold no offsets. Returns e.g. ["vide meta"]."""
     src_top = top_level_boxes(src_path)
     src_moov = next((b for b in src_top if b[0] == b"moov"), None)
     if src_moov is None:
@@ -409,27 +445,25 @@ def copy_track_metadata(src_path, dst_path):
         for src_trak, dst_trak in pairs:
             for kind in TRACK_METADATA:
                 box = find(src_data, src_trak, kind)
-                if box is not None and find(data, dst_trak, kind) is None:
-                    additions.setdefault(dst_trak[1], []).append(src_data[box[1]:box[1] + box[3]])
-                    copied.append(f"{handler.decode()} {kind.decode()}")
+                if box is None:
+                    continue
+                raw = src_data[box[1]:box[1] + box[3]]
+                present = find(data, dst_trak, kind)
+                if present is not None and data[present[1]:present[1] + present[3]] == raw:
+                    continue
+                additions.setdefault(dst_trak[1], []).append((kind, raw))
+                copied.append(f"{handler.decode()} {kind.decode()}")
     if not copied:
         return []
-    if any(b[0] == b"mdat" and b[1] > moov[1] for b in top):
-        raise BoxError("media data after the moov box")
 
     children = []
     for box in iter_boxes(data, moov[2]):
         raw = data[box[1]:box[1] + box[3]]
         if box[1] in additions:
-            raw = make_box(b"trak", raw[box[2]:] + b"".join(additions[box[1]]))
-        children.append(raw)
-    new_moov = make_box(b"moov", b"".join(children))
-    with open(dst_path, "rb") as f:
-        f.seek(moov[1] + moov[3])
-        after = f.read()
-    with open(dst_path, "r+b") as f:
-        f.seek(moov[1])
-        f.write(new_moov)
-        f.write(after)
-        f.truncate()
+            replaced = {kind for kind, _ in additions[box[1]]}
+            kept = b"".join(data[c[1]:c[1] + c[3]] for c in iter_boxes(data, box[1] + box[2], box[1] + box[3])
+                            if c[0] not in replaced)
+            raw = make_box(b"trak", kept + b"".join(new for _, new in additions[box[1]]))
+        children.append((raw, box[0] == b"trak"))
+    write_moov(dst_path, top, moov, children)
     return copied

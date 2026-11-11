@@ -464,8 +464,8 @@ def missing_metadata(src_path, dst_path, kept_as_text=()):
     by_name = {(tag, value) for _, tag, value in dst_entries}
     missing = []
     for group, tag, value in src_entries:
-        if expected_to_change(group, tag):
-            continue
+        if expected_to_change(group, tag) or not value.strip() or value.startswith("(Binary data 0 bytes"):
+            continue   # an empty field holds nothing to lose (exiftool does not write it)
         if (group, tag, value) in exact or (tag, value) in by_name or f"{group}:{tag}" in kept_as_text:
             continue
         name = f"{group}:{tag}"

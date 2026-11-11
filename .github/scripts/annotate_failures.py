@@ -5,12 +5,23 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")   # Windows' console encoding cannot print every character
+
+
 def escape(text):
     return text.replace("%", "%25").replace("\r", "").replace("\n", "%0A")
 
 
 report = Path(sys.argv[1])
 log = Path(sys.argv[2]) if len(sys.argv) > 2 else None
+# A crashed test process leaves no report entry with a reason; its stack is only in the log.
+if log is not None and log.exists():
+    lines = log.read_text(errors="replace").splitlines()
+    for start, line in enumerate(lines):
+        if "Fatal Python error" in line:
+            stack = [l.strip() for l in lines[start:start + 60] if l.strip()]
+            print(f"::error title=Test process crashed::{escape(chr(10).join(stack)[:3500])}")
 if not report.exists():
     if log is not None and log.exists():
         tail = [line for line in log.read_text(errors="replace").splitlines() if line.strip()][-30:]

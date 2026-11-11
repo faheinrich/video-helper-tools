@@ -15,7 +15,7 @@ from video_helper_core.i18n import tr
 from video_helper_core.trash import move_to_trash
 from .utils import (
     DEFAULT_POSTFIX, EXIFTOOL_CONFIG, block_sample_starts, blockiness_command, is_blocky, parse_blockiness, DurationCache, partial_path, path_key, same_file, copy_file_times, format_size, generate_thumbnail, get_thumbnail_path, get_video_info, is_photos_compatible,
-    get_audio_streams, get_hdr_color, parse_ffmpeg_time, read_compression_settings, settings_tag_argument,
+    capture_date_arguments, source_description, get_audio_streams, get_hdr_color, parse_ffmpeg_time, read_compression_settings, settings_tag_argument,
 )
 
 class UnifiedScanWorker(QThread):
@@ -184,11 +184,16 @@ class ArchiveWorker(QThread):
         self.replacing = set()   # sources whose result replaces them (target = source, confirmed by the user)
         self.paused = False
 
-    def settings_record(self, src_path=None):
-        """What gets stored in the result file (see utils.SETTINGS_TAG)."""
+    def settings_record(self, src_path=None, source=None, date_from=None):
+        """What gets stored in the result file (see utils.SETTINGS_TAG). source: what the result was made from
+        (see utils.source_description); date_from: where an added capture date came from."""
+        import datetime as dt
+        from .. import __version__
         s = self.settings
         record = {
-            "version": 1,
+            "version": 2,
+            "app_version": __version__,
+            "compressed_at": dt.datetime.now().astimezone().replace(microsecond=0).isoformat(),
             "encoder": s.get('renderer'),
             "max_res": s.get('max_res') if s.get('limit_res') else None,
             "max_fps": s.get('max_fps') if s.get('limit_fps') else None,
@@ -201,6 +206,10 @@ class ArchiveWorker(QThread):
             record.update(vt_quality=s.get('vt_quality'))
         if src_path is not None and str(src_path) in self.hdr_sources:
             record["hdr"] = True
+        if source:
+            record["source"] = source
+        if date_from:
+            record["capture_date_from"] = date_from
         return record
 
     def pause(self):
@@ -452,12 +461,17 @@ class ArchiveWorker(QThread):
         # Metadata copy is best-effort: a failure here (e.g. exotic tags, missing
         # exiftool) must not throw away an otherwise successfully compressed video.
         metadata_warning = ""
+        record = None
         try:
-            # -config must come first; the settings tag goes after the copy so it is not overwritten.
+            date_arguments, date_from = capture_date_arguments(src_path)
+            record = self.settings_record(src_path, source_description(src_path), date_from)
+            # -config must come first; the settings tag and an added date go after the copy so it does not
+            # overwrite them. The file type fields of ffmpeg's container are not metadata of the video: left out.
             subprocess.run(
                 ["exiftool", "-config", str(EXIFTOOL_CONFIG),
                  "-tagsFromFile", str(src_path), "-all:all", "-gps*", "-Keys:all", "-UserData:all",
-                 settings_tag_argument(self.settings_record(src_path)),
+                 "--MajorBrand", "--MinorVersion", "--CompatibleBrands",
+                 *date_arguments, settings_tag_argument(record),
                  str(partial), "-overwrite_original", "-q"], check=True)
         except Exception as e:
             metadata_warning = tr(" ⚠️ (metadata could not be copied: {error})", error=e)
@@ -491,7 +505,7 @@ class ArchiveWorker(QThread):
         ratio = (dst_size / src_size) * 100 if src_size > 0 else 100.0
 
         data_dict = {'src_size': src_size, 'dst_size': dst_size, 'diff_size': diff_size, 'ratio': ratio,
-                     'settings': None if metadata_warning else self.settings_record(src_path)}
+                     'settings': None if metadata_warning else record}
         result_msg = f"✅ FINISH: {src_path.name} | {format_size(src_size)} -> {format_size(dst_size)} ({ratio:.1f}%){metadata_warning}"
 
         if dst_size >= src_size:

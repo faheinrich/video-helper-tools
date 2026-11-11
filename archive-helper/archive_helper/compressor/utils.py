@@ -344,6 +344,77 @@ def read_compression_settings(paths):
     return found
 
 
+_DATE_RE = re.compile(r"(\d{4}):(\d\d):(\d\d) (\d\d):(\d\d):(\d\d)(?:\.\d+)?\s*(Z|[+-]\d\d:?\d\d)?")
+
+
+def parse_exif_date(value):
+    """An aware datetime from an exiftool date ("2025:06:15 19:20:57+09:00"); local time when it has no zone."""
+    import datetime as dt
+    match = _DATE_RE.match(str(value or ""))
+    if not match or match.group(1) == "0000":
+        return None
+    try:
+        moment = dt.datetime(*(int(g) for g in match.groups()[:6]))
+    except ValueError:
+        return None
+    zone = match.group(7)
+    if zone == "Z":
+        return moment.replace(tzinfo=dt.timezone.utc)
+    if zone:
+        sign = 1 if zone[0] == "+" else -1
+        digits = zone[1:].replace(":", "")
+        return moment.replace(tzinfo=dt.timezone(sign * dt.timedelta(hours=int(digits[:2]), minutes=int(digits[2:]))))
+    return moment.astimezone()
+
+
+def file_capture_time(path):
+    """The older of creation and modification time: what the Finder shows as the date of a video."""
+    stat = Path(path).stat()
+    birth = getattr(stat, "st_birthtime", None)
+    return birth if birth is not None and birth < stat.st_mtime else stat.st_mtime
+
+
+def capture_date_arguments(src_path):
+    """exiftool arguments that give the result a capture date when the original has none of its own in the
+    usual video fields (some cameras, screen recordings, messenger videos): then only the file date knew it,
+    and that is lost with the first careless copy. Returns (arguments, where the date came from or None)."""
+    import datetime as dt
+    cmd = ["exiftool", "-j", "-a", "-G1", "-Keys:CreationDate", "-QuickTime:CreateDate", "-DateTimeOriginal",
+           "-charset", "filename=utf8", str(src_path)]
+    try:
+        tags = json.loads(subprocess.run(cmd, capture_output=True, text=True, timeout=60).stdout or "[{}]")[0]
+    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError, IndexError):
+        return [], None
+    if parse_exif_date(tags.get("Keys:CreationDate")) or parse_exif_date(tags.get("QuickTime:CreateDate")):
+        return [], None
+    origin, moment = None, None
+    for key, value in tags.items():
+        if key.endswith(":DateTimeOriginal") and parse_exif_date(value):
+            origin, moment = key.split(":")[0] + ":DateTimeOriginal", parse_exif_date(value)
+            break
+    if moment is None:
+        try:
+            moment = dt.datetime.fromtimestamp(file_capture_time(src_path)).astimezone()
+        except OSError:
+            return [], None
+        origin = "file date"
+    moment = moment.replace(microsecond=0)
+    local = moment.strftime("%Y:%m:%d %H:%M:%S") + moment.strftime("%z")[:3] + ":" + moment.strftime("%z")[3:]
+    utc = moment.astimezone(dt.timezone.utc).strftime("%Y:%m:%d %H:%M:%S")
+    # Keys:CreationDate (with its zone) is what Apple Photos reads; CreateDate is stored in UTC by the format.
+    return [f"-Keys:CreationDate={local}", f"-QuickTime:CreateDate={utc}"], origin
+
+
+def source_description(src_path):
+    """What the result was made from, for the settings record."""
+    path = Path(src_path)
+    try:
+        size = path.stat().st_size
+    except OSError:
+        size = None
+    return {"name": path.name, "size": size, "format": describe_streams(path)}
+
+
 def describe_streams(file_path):
     """Short codec summary for error messages, e.g. "hevc (Main 10), 3840x2160, 59.94 fps · audio pcm_s24le"."""
     cmd = ["ffprobe", "-v", "error", "-show_entries",

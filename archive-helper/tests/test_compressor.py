@@ -723,8 +723,10 @@ def test_settings_are_stored_in_the_result_and_shown_after_a_restart(qapp, make_
 
     result = dst / "clip_archived.mp4"
     stored = read_compression_settings([result])[str(result)]
-    assert stored == {"version": 1, "encoder": "libx265", "crf": 23, "preset": "ultrafast", "max_res": 1280,
-                      "max_fps": 30, "copy_aac": True, "dry_run": True}
+    encoding = {key: stored[key] for key in ("encoder", "crf", "preset", "max_res", "max_fps", "copy_aac", "dry_run")}
+    assert encoding == {"encoder": "libx265", "crf": 23, "preset": "ultrafast", "max_res": 1280,
+                        "max_fps": 30, "copy_aac": True, "dry_run": True}
+    assert stored["version"] == 2 and stored["source"]["name"] == "clip.mp4"
     assert is_photos_compatible(result)
     assert gui.model.rows[0].settings == stored  # shown right away
 

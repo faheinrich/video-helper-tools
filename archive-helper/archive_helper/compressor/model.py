@@ -68,9 +68,26 @@ def describe_settings(settings, detailed=False):
         parts.append("HDR")
     if settings.get("dry_run"):
         parts.append(tr("test run"))
-    if detailed:
-        parts.append(tr("AAC copied") if settings.get("copy_aac") else tr("audio re-encoded"))
-    return " · ".join(parts)
+    if not detailed:
+        return " · ".join(parts)
+    parts.append(tr("AAC copied") if settings.get("copy_aac") else tr("audio re-encoded"))
+    lines = [" · ".join(parts)]
+    source = settings.get("source") or {}
+    if source.get("name"):
+        about = [source["name"]]
+        if source.get("size") is not None:
+            about.append(format_size(source["size"]))
+        if source.get("format"):
+            about.append(source["format"])
+        lines.append(tr("Made from: {source}", source=" · ".join(about)))
+    if settings.get("compressed_at"):
+        lines.append(tr("Compressed on {date} with version {version}", date=settings["compressed_at"][:16].replace("T", " "),
+                        version=settings.get("app_version", "?")))
+    if settings.get("capture_date_from") == "file date":
+        lines.append(tr("The original had no capture date inside; the file date was written in."))
+    elif settings.get("capture_date_from"):
+        lines.append(tr("Capture date written in from {field}.", field=settings["capture_date_from"]))
+    return "\n".join(lines)
 
 
 def format_clock(seconds):

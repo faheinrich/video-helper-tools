@@ -6,6 +6,15 @@ All notable changes to the two apps and the shared core. The format follows
 
 ## [Unreleased]
 
+### Archive Helper
+- New: a video without a capture date of its own (some cameras, screen recordings, messenger videos) gets one written into
+  the result: from another date field of the original if it has one, otherwise from the file date. Before, the date only
+  lived in the file system and was lost with the first plain copy. Existing capture dates are never changed.
+- New: the result records what it was made from (file name, size and format of the original), when, and with which app
+  version. The tooltip of the settings column shows it.
+- Changed: ffmpeg's container type fields (MajorBrand, MinorVersion, CompatibleBrands) are no longer copied into the
+  result as if they were metadata of the camera.
+
 ### Analysis Helper
 - Changed: when a transcription replaces an existing EAF file, the earlier one goes to the trash.
 - Fixed: dark mode on macOS: the transcriber's panels glared bright grey, and its section titles and the sync tool's waveform

@@ -197,6 +197,79 @@ def test_capture_date_gps_and_file_times_are_carried_over(qapp, tmp_path):
     assert data["settings"] == record
 
 
+def exif(path, *tags):
+    return json.loads(subprocess.run(["exiftool", "-j", "-a", "-G1", *tags, str(path)],
+                                     capture_output=True, text=True, check=True).stdout)[0]
+
+
+@requires_exiftool
+def test_a_video_without_a_capture_date_gets_its_file_date_written_in(qapp, tmp_path):
+    from archive_helper.compressor.utils import read_compression_settings
+
+    src = tmp_path / "src"
+    src.mkdir()
+    clip = make_clip(src / "screen.mp4", size="640x360")   # ffmpeg writes no creation time without being asked
+    os.utime(clip, (1_750_000_000, 1_750_000_000))           # 2025-06-15 15:06:40 UTC
+
+    out, _, data = compress(qapp, src, "screen.mp4")
+
+    tags = exif(out, "-Keys:CreationDate", "-QuickTime:CreateDate")
+    assert tags["QuickTime:CreateDate"] == "2025:06:15 15:06:40"   # UTC, as the format wants it
+    local = __import__("datetime").datetime.fromtimestamp(1_750_000_000).astimezone()
+    assert tags["Keys:CreationDate"].startswith(local.strftime("%Y:%m:%d %H:%M:%S"))
+    assert read_compression_settings([out])[str(out)]["capture_date_from"] == "file date"
+
+
+@requires_exiftool
+def test_an_existing_capture_date_is_kept_as_it_is(qapp, tmp_path):
+    src = tmp_path / "src"
+    src.mkdir()
+    clip = make_clip(src / "IMG_2.mov", size="640x360")
+    subprocess.run(["exiftool", "-q", "-overwrite_original", "-Keys:CreationDate=2019:01:02 03:04:05+01:00",
+                    str(clip)], check=True)
+    os.utime(clip, (1_750_000_000, 1_750_000_000))   # a later copy: must not win over the real date
+
+    out, _, data = compress(qapp, src, "IMG_2.mov")
+
+    assert exif(out, "-Keys:CreationDate")["Keys:CreationDate"] == "2019:01:02 03:04:05+01:00"
+    assert "capture_date_from" not in data["settings"]
+
+
+@requires_exiftool
+def test_the_result_records_what_it_was_made_from(qapp, tmp_path):
+    from archive_helper import __version__
+    from archive_helper.compressor.model import describe_settings
+    from archive_helper.compressor.utils import read_compression_settings
+
+    src = tmp_path / "src"
+    src.mkdir()
+    clip = make_clip(src / "IMG_3.mov", size="640x360")
+    size = clip.stat().st_size
+
+    out, _, _ = compress(qapp, src, "IMG_3.mov")
+
+    record = read_compression_settings([out])[str(out)]
+    assert record["version"] == 2 and record["app_version"] == __version__
+    assert record["source"]["name"] == "IMG_3.mov" and record["source"]["size"] == size
+    assert record["source"]["format"].startswith("h264") and "640x360" in record["source"]["format"]
+    assert record["compressed_at"][:4].isdigit()
+    tooltip = describe_settings(record, detailed=True)
+    assert "IMG_3.mov" in tooltip and __version__ in tooltip
+    # ffmpeg's container type fields are not copied over as if they were the camera's metadata
+    assert not {"Keys:MajorBrand", "Keys:MinorVersion", "Keys:CompatibleBrands"} & set(exif(out, "-Keys:all"))
+
+
+def test_exif_dates_are_read_with_and_without_a_zone():
+    import datetime as dt
+    from archive_helper.compressor.utils import parse_exif_date
+
+    assert parse_exif_date("2025:06:15 19:20:57+09:00").utcoffset() == dt.timedelta(hours=9)
+    assert parse_exif_date("2025:06:15 10:20:57Z").utcoffset() == dt.timedelta(0)
+    assert parse_exif_date("2025:06:15 10:20:57").tzinfo is not None   # taken as local time
+    assert parse_exif_date("0000:00:00 00:00:00") is None
+    assert parse_exif_date("") is None and parse_exif_date(None) is None
+
+
 def test_portrait_phone_clips_come_out_upright(qapp, tmp_path):
     from archive_helper.compressor.utils import get_display_rotation
 

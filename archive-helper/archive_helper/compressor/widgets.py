@@ -11,6 +11,7 @@ from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PySide6.QtMultimediaWidgets import QGraphicsVideoItem
 
 from video_helper_core.i18n import tr
+from video_helper_core.media import MediaPlayer
 from video_helper_core.paths import settings_file
 from .utils import describe_streams, get_display_rotation, get_resolution_and_fps
 
@@ -517,7 +518,7 @@ class CompareVideoDialog(QDialog):
         comp_meta = f"{w_c}x{h_c} @ {fps_c} FPS" if w_c and h_c else tr("Unknown")
         
         # Original Player
-        self.player_orig = QMediaPlayer(self)
+        self.player_orig = MediaPlayer(self)
         self.audio_orig = QAudioOutput(self)
         self.player_orig.setAudioOutput(self.audio_orig)
         self.view_orig = ZoomableVideoView(self.player_orig, get_display_rotation(orig_path))
@@ -532,7 +533,7 @@ class CompareVideoDialog(QDialog):
         
         if self.has_comp:
             # Compressed Player
-            self.player_comp = QMediaPlayer(self)
+            self.player_comp = MediaPlayer(self)
             self.audio_comp = QAudioOutput(self)
             self.player_comp.setAudioOutput(self.audio_comp)
             # One soundtrack: two slightly offset ones sound like an echo.

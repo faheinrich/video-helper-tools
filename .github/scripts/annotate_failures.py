@@ -1,6 +1,7 @@
 """Turns the failed tests of a JUnit report into GitHub annotations (::error), so the reasons show on the run's page
 and in its public check-run data, not only in the logs. Without a report (pytest stopped before running tests), the
 end of the log given as second argument becomes the annotation."""
+import re
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -19,9 +20,13 @@ log = Path(sys.argv[2]) if len(sys.argv) > 2 else None
 if log is not None and log.exists():
     lines = log.read_text(errors="replace").splitlines()
     for start, line in enumerate(lines):
-        if "Fatal Python error" in line or "Timeout +++" in line:
+        # pytest-timeout writes "+++ Timeout +++", faulthandler (a hang that holds the GIL) "Timeout (0:05:30)!",
+        # the latter right after the progress dots of the same line
+        if "Fatal Python error" in line or "Timeout +++" in line or re.search(r"Timeout \(\d+:\d\d:\d\d\)!", line):
             title = "Test process crashed" if "Fatal" in line else "Test hung (timeout)"
-            stack = [l.strip() for l in lines[start:start + 80] if l.strip()]
+            # pytest's and pluggy's own frames say nothing and would push the other threads' stacks out
+            stack = [l.strip() for l in lines[start:start + 400]
+                     if l.strip() and not re.search(r"[/\\](_pytest|pluggy)[/\\]", l)][:80]
             print(f"::error title={title}::{escape(chr(10).join(stack)[:3500])}")
 if not report.exists():
     if log is not None and log.exists():

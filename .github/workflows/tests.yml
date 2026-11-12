@@ -15,8 +15,6 @@ jobs:
           - {package: video-helper-core, dir: core}
           - {package: archive-helper, dir: archive-helper}
           - {package: analysis-helper, dir: analysis-helper}
-        exclude:   # for now: its tests at times hung on Windows; to be looked into
-          - {os: windows-latest, package: analysis-helper}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
     steps:

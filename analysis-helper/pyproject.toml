@@ -40,13 +40,16 @@ dev = [
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
     "pytest-timeout",
-    "pytest-xdist>=3.8.0",
 ]
 
 [tool.pytest.ini_options]
 # A hanging test (seen once on Linux CI) fails with a stack trace instead of stalling the whole run.
 timeout = 300
 timeout_method = "thread"
+# pytest-timeout's thread needs the GIL; a hang inside Qt that holds it (seen on Linux CI) never ends that way.
+# faulthandler's watchdog is plain C: it prints every thread's stack and ends the process.
+faulthandler_timeout = 330
+faulthandler_exit_on_timeout = true
 testpaths = ["tests"]
 pythonpath = ["."]
 

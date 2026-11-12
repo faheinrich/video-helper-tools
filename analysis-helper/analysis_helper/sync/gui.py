@@ -14,6 +14,7 @@ from PySide6.QtCore import Qt, QUrl, QTimer
 from PySide6.QtGui import QPixmap, QPainter, QPen
 
 from video_helper_core.i18n import tr
+from video_helper_core.media import MediaPlayer
 from video_helper_core.style import STYLE, caption
 from analysis_helper.sync.info import SyncInfoDialog
 from analysis_helper.sync.video_synch import extract_audio_tracks, calculate_shift_fft, trim_video
@@ -126,14 +127,14 @@ class VideoSyncGUI(QWidget):
         video_layout.setSpacing(10)
         main_layout.addLayout(video_layout, 1)
 
-        self.player1 = QMediaPlayer(self)
+        self.player1 = MediaPlayer(self)
         self.audio1 = QAudioOutput(self)
         self.player1.setAudioOutput(self.audio1)
         self.video_widget1 = QVideoWidget()
         video_layout.addWidget(self.video_card("1", self.video_widget1))
         self.player1.setVideoOutput(self.video_widget1)
 
-        self.player2 = QMediaPlayer(self)
+        self.player2 = MediaPlayer(self)
         self.audio2 = QAudioOutput(self)
         self.player2.setAudioOutput(self.audio2)
         self.video_widget2 = QVideoWidget()

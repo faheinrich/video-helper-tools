@@ -19,11 +19,19 @@ All notable changes to the two apps and the shared core. The format follows
 - Fixed (Windows): results kept today's date as creation date; they now get the original's, as on macOS.
 - Fixed: the settings drawer grows when its options need more room (with Windows' fonts they were cut off at the
   right).
+- Fixed: the comparison player could freeze the app when it was closed, stopped or moved while a video played.
+
+### Analysis Helper
+- Fixed: the sync tool's players could freeze the app when they were stopped or moved while playing.
+- Fixed: the transcriber could crash right after a file was transcribed (most likely in a batch), because the finished
+  transcription was freed while its thread was still ending.
 
 ### Development
-- GitHub also tests on Windows (core and Archive Helper; Analysis Helper not yet, its tests at times hung there).
-- pytest-xdist is installed: `pytest -n auto` runs the tests in parallel. Not on GitHub: with its 3-4 cores it was
-  not faster, as many tests run ffmpeg, which uses all cores already.
+- GitHub also tests on Windows.
+- Core: `MediaPlayer`, a QMediaPlayer whose play, pause, stop and setPosition let go of Python's GIL. With the plain
+  one, Qt's audio thread and the call could wait for each other forever (the test runs that hung on Linux).
+- Tests: a hang that holds the GIL, which pytest-timeout cannot end, now ends after 5½ minutes with the stack of
+  every thread (faulthandler), shown as annotation on GitHub.
 
 ## [analysis-v0.0.3] - 2026-11-11
 

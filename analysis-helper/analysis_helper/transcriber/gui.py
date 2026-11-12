@@ -697,11 +697,8 @@ class WhisperGui(QWidget):
             self.log_output.append(tr("Failed: {message}", message=message))
             # Optional: Ask user if they want to continue? For now, just continue
         
-        # Clean up thread
-        if getattr(self, 'transcription_thread', None) is not None:
-            self._old_thread = self.transcription_thread
-            self.transcription_thread.deleteLater()
-            
+        self.release_transcription_thread()
+
         self.current_batch_index += 1
         self.process_next_batch_item()
     
@@ -907,10 +904,21 @@ class WhisperGui(QWidget):
         else:
             self.progress_bar.setRange(0, 100)
     
+    def release_transcription_thread(self):
+        # The thread's own finished signal is sent from inside run(), so the thread may still be running here.
+        # Deleting a running QThread aborts the whole app: wait until run() has returned (a moment at most).
+        thread = getattr(self, 'transcription_thread', None)
+        if thread is None:
+            return
+        try:
+            thread.wait()
+            thread.deleteLater()
+        except RuntimeError:  # already freed
+            pass
+
     def on_transcription_finished(self, success, message):
-        if getattr(self, 'transcription_thread', None) is not None:
-            self.transcription_thread.deleteLater()
-            
+        self.release_transcription_thread()
+
         self.start_btn.setEnabled(True)
         self.start_batch_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)

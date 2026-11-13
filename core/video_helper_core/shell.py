@@ -218,6 +218,11 @@ class LandingPage(QWidget):
         return container
 
 
+# macOS shows a window's menus in the menu bar at the top of the screen; elsewhere a menu bar would add a row to the
+# window, so there the menus' shortcuts are carried by the page instead (see SuiteWindow.install_menus).
+NATIVE_MENU_BAR = sys.platform == "darwin"
+
+
 class SuiteWindow(QMainWindow):
     def __init__(self, spec):
         super().__init__()
@@ -311,6 +316,7 @@ class SuiteWindow(QMainWindow):
         self.toolbar.show_page(None)
         self.back_action.setEnabled(False)
         self.layout.addWidget(self.landing_page)
+        self.install_menus(None)
 
     def show_tool(self, name):
         self.clear_content()
@@ -319,6 +325,24 @@ class SuiteWindow(QMainWindow):
         self.toolbar.show_page(self.tool_specs[name].label())
         self.back_action.setEnabled(True)
         self.layout.addWidget(self.tools[name])
+        self.install_menus(self.tools[name])
+
+    def install_menus(self, tool):
+        """Shows the menus a tool page offers (its menus() method) while it is open. On macOS they are in the menu
+        bar at the top of the screen; elsewhere the bar stays hidden and the page itself carries the actions, so
+        their shortcuts work."""
+        bar = self.menuBar()
+        bar.clear()
+        menus = tool.menus() if tool is not None and hasattr(tool, "menus") else []
+        if NATIVE_MENU_BAR and bar.isNativeMenuBar():   # not in tests (offscreen): there it would be a row in the window
+            for menu in menus:
+                bar.addMenu(menu)
+            return
+        bar.hide()
+        if menus and not getattr(tool, "_menu_actions_added", False):
+            tool._menu_actions_added = True
+            for menu in menus:
+                tool.addActions([action for action in menu.actions() if not action.shortcut().isEmpty()])
 
     def busy_tools(self):
         return [widget for widget in self.tools.values() if getattr(widget, "is_busy", lambda: False)()]

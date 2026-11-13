@@ -395,4 +395,12 @@ register_german({
     '{name} is no longer in the trash.': '{name} ist nicht mehr im Papierkorb.',
     'There is a file named {name} again.': 'Es gibt wieder eine Datei namens {name}.',
     '{name} is gone.': '{name} ist nicht mehr da.',
+    'Undo': 'Rückgängig',
+    'Redo': 'Wiederholen',
+    'Edit': 'Bearbeiten',
+    'Undo “{action}”': '„{action}“ rückgängig machen',
+    'Redo “{action}”': '„{action}“ wiederholen',
+    'No video selected': 'Kein Video ausgewählt',
+    '“{action}” cannot be undone: {error}': '„{action}“ lässt sich nicht rückgängig machen: {error}',
+    '“{action}” cannot be undone while the video is being compressed.': '„{action}“ lässt sich nicht rückgängig machen, während das Video komprimiert wird.',
 })

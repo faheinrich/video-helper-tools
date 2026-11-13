@@ -147,6 +147,10 @@ The result keeps the metadata of the original, so an archive loses nothing but r
   - A changed variant is marked and encoded again alone.
   - "Use these settings" hands a variant to the drawer.
 - **Metadata**, **Log** (ffmpeg's output), **Show original / result** in the file manager.
+- **Undo and redo** of the file actions (Edit menu, ⌘Z / ⇧⌘Z, Ctrl+Z / Ctrl+Y). The files come back from the trash.
+  Undo is refused, and nothing changes, when a file is no longer in the trash or its name is taken again.
+- **Menu bar** (macOS): Edit (undo, redo) and Videos (what the right-click menu offers for the selected videos, and
+  Scan again, Export CSV, Clear cache).
 - **File actions**, also for several videos at once, always via the trash:
   - replace the original with the result;
   - swap original and result;

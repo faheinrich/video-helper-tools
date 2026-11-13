@@ -2,7 +2,7 @@
 from dataclasses import dataclass, replace
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFontDatabase
+from PySide6.QtGui import QFontDatabase, QKeySequence
 from PySide6.QtWidgets import QDialog, QLabel, QMenu, QMessageBox, QPlainTextEdit, QPushButton, QVBoxLayout
 from video_helper_core.i18n import tr
 from .model import COL_STATUS
@@ -252,6 +252,93 @@ class RowActions:
         """Remembers what an action did, so Undo can take it back. done: [(row before, steps)] per video."""
         self.undo_stack.append(FileActionRecord(title, action, done))
         self.redo_stack.clear()
+        self.update_undo_actions()
+
+    # ------------------------------------------------------------- undo
+    def undo_file_action(self):
+        """Takes the last file action back: the files return from the trash or to their names, the rows are as
+        before. Refused, changing nothing, when that is no longer possible."""
+        if not self.undo_stack:
+            return
+        record = self.undo_stack[-1]
+        if any((row := self.model.row_for(before.src)) is not None and row.status == "running"
+               for before, _ in record.done):
+            QMessageBox.warning(self, tr("Undo"), tr("“{action}” cannot be undone while the video is being compressed.",
+                                                     action=record.title))
+            return
+        try:
+            file_actions.undo([step for _, steps in record.done for step in steps])
+        except OSError as e:
+            QMessageBox.warning(self, tr("Undo"), tr("“{action}” cannot be undone: {error}", action=record.title, error=e))
+            return
+        self.undo_stack.pop()
+        self.redo_stack.append(record)
+        for before, _ in record.done:
+            self.model.update(before.src, status=before.status, out_size=before.out_size, note=before.note,
+                              settings=before.settings)
+        self.update_undo_actions()
+        self.update_detail_bar()
+
+    def redo_file_action(self):
+        """Does the undone action again, on the same files."""
+        if not self.redo_stack:
+            return
+        record = self.redo_stack.pop()
+        done, failed = [], []
+        for before, _ in record.done:
+            row = self.model.row_for(before.src) or replace(before)
+            snapshot = replace(row)
+            try:
+                done.append((snapshot, self.apply_file_action(record.action, row)))
+            except OSError as e:
+                failed.append(f"{row.src.name}: {e}")
+        if done:
+            self.undo_stack.append(FileActionRecord(record.title, record.action, done))
+        self.update_undo_actions()
+        self.update_detail_bar()
+        if failed:
+            QMessageBox.critical(self, tr("Error"), tr("The action failed: {error}", error="\n".join(failed)))
+
+    # ------------------------------------------------------------- menus
+    def menus(self):
+        """The page's menus for the window's menu bar: Edit (undo, redo) and Videos (what the right-click menu offers
+        for the selected videos, and the folder's commands)."""
+        if getattr(self, "edit_menu", None) is None:
+            self.edit_menu = QMenu(tr("Edit"), self)
+            self.undo_action = self.edit_menu.addAction(tr("Undo"), self.undo_file_action)
+            self.undo_action.setShortcut(QKeySequence.Undo)
+            self.redo_action = self.edit_menu.addAction(tr("Redo"), self.redo_file_action)
+            self.redo_action.setShortcut(QKeySequence.Redo)
+            self.video_menu = QMenu(tr("Videos"), self)
+            self.video_menu.aboutToShow.connect(self.fill_video_menu)
+            self.fill_video_menu()
+            self.update_undo_actions()
+        return [self.edit_menu, self.video_menu]
+
+    def update_undo_actions(self):
+        if getattr(self, "edit_menu", None) is None:
+            return
+        for action, stack, plain, named in (
+                (self.undo_action, self.undo_stack, tr("Undo"), lambda title: tr("Undo “{action}”", action=title)),
+                (self.redo_action, self.redo_stack, tr("Redo"), lambda title: tr("Redo “{action}”", action=title))):
+            action.setEnabled(bool(stack))
+            action.setText(named(stack[-1].title) if stack else plain)
+
+    def fill_video_menu(self):
+        menu = self.video_menu
+        menu.clear()
+        rows = self.selected_rows()
+        # the actions belong to a menu built for the selection; it is kept until the next filling
+        self.video_menu_source = self.build_row_menu(rows[0]) if len(rows) == 1 else self.build_rows_menu(rows) if rows else None
+        if self.video_menu_source is not None:
+            menu.addActions(self.video_menu_source.actions())
+        else:
+            menu.addAction(tr("No video selected")).setEnabled(False)
+        menu.addSeparator()
+        shortcut = QKeySequence("Ctrl+R").toString(QKeySequence.NativeText)   # the page's own shortcut
+        menu.addAction(f"{tr('Scan again')}\t{shortcut}", self.start_unified_scan).setEnabled(not self.is_busy())
+        menu.addAction(tr("Export list as CSV…"), self.export_logs)
+        menu.addAction(tr("Clear thumbnail and duration cache"), self.clear_cache)
 
 
 @dataclass

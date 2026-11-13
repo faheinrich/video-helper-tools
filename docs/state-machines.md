@@ -24,6 +24,7 @@ Overview:
 | L | Compression lab | `compressor/lab.py` |
 | C | Compare viewer | `compressor/widgets.py` (`CompareVideoDialog`) |
 | M | Metadata viewer | `compressor/metadata_view.py` |
+| U | Undo and redo of file actions | `compressor/row_actions.py`, `compressor/file_actions.py` |
 | S | Backup page (rsync) | `rsync_gui/gui.py` |
 | W | App window and update check | core, `shell.py`, `updates.py` |
 | T | Transcriber, its batch and the Whisper server | Analysis Helper, `transcriber/gui.py` |
@@ -245,6 +246,32 @@ reading; only the answer to the latest one is shown. Closing while it reads is s
 | reading → shown (differences first when something is missing) | test_metadata_view::test_the_viewer_shows_a_lost_field_of_a_result |
 | reading → shown, original only | test_metadata_view::test_without_a_result_the_viewer_shows_the_original |
 | reading → reading again; an earlier answer is ignored; → error | test_metadata_view::test_only_the_answer_to_the_latest_reading_is_shown |
+
+---
+
+## U: Undo and redo of file actions
+
+Two stacks of done actions (`undo_stack`, `redo_stack`). Each action records, for each video, the row as it was
+and the steps on the file system (see `file_actions.Step`).
+
+```mermaid
+stateDiagram-v2
+    [*] --> nothing
+    nothing --> undoable: U1 file action done
+    undoable --> undoable: U1 another action (the redo stack is cleared)
+    undoable --> redoable: U2 Undo (files back, rows as before)
+    undoable --> undoable: U3 Undo refused (trash emptied, name taken, video being compressed): nothing changes
+    redoable --> undoable: U4 Redo (the same action on the same files)
+```
+
+| # | Tests |
+|---|---|
+| U1 | test_file_actions::test_an_action_is_undone_and_redone_from_the_edit_menu, test_every_action_can_be_undone_to_the_byte, test_a_refusing_trash_changes_nothing |
+| U2 | test_file_actions::test_an_action_is_undone_and_redone_from_the_edit_menu, test_replacing_keeps_another_file_of_the_results_name_and_brings_it_back |
+| U3 | test_file_actions::test_undo_that_is_no_longer_possible_says_why_and_keeps_it, test_undo_is_refused_without_a_change_when_the_trash_was_emptied, test_undo_is_refused_when_a_file_of_that_name_appeared, test_no_undo_while_the_video_is_being_compressed |
+| U4 | test_file_actions::test_an_action_is_undone_and_redone_from_the_edit_menu |
+
+The menus are shown while the page is open (W1): test_file_actions::test_the_window_shows_the_pages_menus_only_while_it_is_open.
 
 ---
 

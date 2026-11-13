@@ -7,6 +7,11 @@ All notable changes to the two apps and the shared core. The format follows
 ## [Unreleased]
 
 ### Archive Helper
+- Added: undo and redo for the file actions (replace, swap, move to the trash): Edit menu, Cmd+Z / Shift+Cmd+Z
+  (Ctrl+Z / Ctrl+Y on Windows and Linux). The files come back from the trash; when that is no longer possible
+  (trash emptied, name taken), nothing changes and the app says why.
+- Added: menus in the macOS menu bar while the compressor is open: Edit and Videos (the right-click menu's actions
+  for the selected videos, and Scan again, Export list as CSV, Clear cache).
 - Added: more status filters: "Done in this session", "Already archived" (both only when the finished videos are of
   both kinds) and "⚠ With problems" (metadata missing, visible blocks, larger than the original). Sorting by status
   puts the videos with problems together, right after the errors, grouped by problem.
@@ -41,6 +46,9 @@ All notable changes to the two apps and the shared core. The format follows
   transcription was freed while its thread was still ending.
 
 ### Development
+- The compressor page is split: gui.py (layout, scan, summary), drawer.py, run_control.py, row_actions.py, and
+  file_actions.py for the file operations without widgets.
+- Core: tool pages can offer menus (`menus()`); move_to_trash returns where the file is in the trash.
 - Docs: features, architecture and the state machines with every transition and its tests (`docs/`).
 - The coverage badge is back in the README.
 - GitHub also tests on Windows.

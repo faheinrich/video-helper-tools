@@ -6,21 +6,6 @@ All notable changes to the two apps and the shared core. The format follows
 
 ## [Unreleased]
 
-### Archive Helper
-- Fixed: "Stop" in the backup page did nothing while rsync was still starting.
-- Fixed: closing the compression lab while a frame was about to load (or an encoding was ending) started ffmpeg for
-  the closed window; quitting the app at that moment could make it crash.
-- Fixed: cancelling in the compression lab right as an encoding was about to start let that encoding run to its end.
-- Fixed (Windows): the settings column stayed empty and missing metadata was not flagged, because exiftool names the
-  files with "/" and the stored settings were looked up with "\".
-- Fixed (Windows): a folder dropped onto a path field showed "/" instead of the system's "\".
-- Fixed (Windows): stopping a run failed with an error, because the unfinished file was still locked by the ffmpeg
-  that had just been stopped.
-- Fixed (Windows): results kept today's date as creation date; they now get the original's, as on macOS.
-- Fixed: the settings drawer grows when its options need more room (with Windows' fonts they were cut off at the
-  right).
-- Fixed: the comparison player could freeze the app when it was closed, stopped or moved while a video played.
-
 ### Analysis Helper
 - Fixed: the sync tool's players could freeze the app when they were stopped or moved while playing.
 - Fixed: the transcriber could crash right after a file was transcribed (most likely in a batch), because the finished
@@ -87,6 +72,22 @@ Archive Helper `archive-v0.0.5`: camera metadata reaches the compressed result. 
 - The metadata comparison leaves out what compressing changes by its nature: stream details of AVI and AVCHD (codec,
   rates, counts), positions inside the file, and the Photos library signature of iPhone videos, which a compressed
   copy deliberately does not take over so the Photos app does not mistake it for the original.
+
+### Archive Helper: added on 2026-11-13
+The 0.0.5 packages were built again from a later commit, with these fixes:
+- Fixed: "Stop" in the backup page did nothing while rsync was still starting.
+- Fixed: closing the compression lab while a frame was about to load (or an encoding was ending) started ffmpeg for
+  the closed window; quitting the app at that moment could make it crash.
+- Fixed: cancelling in the compression lab right as an encoding was about to start let that encoding run to its end.
+- Fixed (Windows): the settings column stayed empty and missing metadata was not flagged, because exiftool names the
+  files with "/" and the stored settings were looked up with "\".
+- Fixed (Windows): a folder dropped onto a path field showed "/" instead of the system's "\".
+- Fixed (Windows): stopping a run failed with an error, because the unfinished file was still locked by the ffmpeg
+  that had just been stopped.
+- Fixed (Windows): results kept today's date as creation date; they now get the original's, as on macOS.
+- Fixed: the settings drawer grows when its options need more room (with Windows' fonts they were cut off at the
+  right).
+- Fixed: the comparison player could freeze the app when it was closed, stopped or moved while a video played.
 
 ## [0.0.4] - 2026-11-09
 

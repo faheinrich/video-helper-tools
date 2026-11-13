@@ -215,9 +215,10 @@ def test_sorting_by_preview_goes_by_brightness_and_counts_the_loaded_ones(qapp):
 
     model = VideoTableModel()
     model.reset([row("a.mp4"), row("b.mp4"), row("c.mp4"), row("d.mp4")])
-    model.set_thumbnail("/src/a.mp4", picture(200))
-    model.set_thumbnail("/src/b.mp4", None)           # could not be made
-    model.set_thumbnail("/src/c.mp4", picture(20))
+    a, b, c = (str(r.src) for r in model.rows[:3])   # the paths as the system writes them ("\\" on Windows)
+    model.set_thumbnail(a, picture(200))
+    model.set_thumbnail(b, None)           # could not be made
+    model.set_thumbnail(c, picture(20))
     proxy = VideoFilterProxy()
     proxy.setSourceModel(model)
     proxy.sort(COL_THUMB, Qt.AscendingOrder)

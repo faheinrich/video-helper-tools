@@ -430,13 +430,16 @@ def test_result_settings_worker_reports_stored_settings(qapp, tmp_path):
     if not shutil.which("exiftool"):
         pytest.skip("exiftool not installed")
     with_tag, without = make_clip(tmp_path / "r1.mp4"), make_clip(tmp_path / "r2.mp4")
-    subprocess.run(["exiftool", "-config", str(EXIFTOOL_CONFIG), settings_tag_argument({"version": 1, "crf": 22}),
+    stored = {"version": 1, "encoder": "libx265", "crf": 22}
+    subprocess.run(["exiftool", "-config", str(EXIFTOOL_CONFIG), settings_tag_argument(stored),
                     str(with_tag), "-overwrite_original", "-q"], check=True)
     worker = ResultSettingsWorker([(tmp_path / "s1.mp4", with_tag), (tmp_path / "s2.mp4", without)])
     seen = collect(worker.settings_found)
     worker.run()
-    assert seen == [(str(tmp_path / "s1.mp4"), {"version": 1, "crf": 22})] or \
-        (len(seen) == 1 and seen[0][1]["crf"] == 22)
+    # the stored settings first; for the result without them, what the video itself tells
+    assert seen[0] == (str(tmp_path / "s1.mp4"), stored)
+    assert len(seen) == 2 and seen[1][0] == str(tmp_path / "s2.mp4")
+    assert seen[1][1]["read_from_file"] and seen[1][1]["codec"] == "h264"
 
 
 def test_run_marks_a_video_that_cannot_be_started_as_error_with_the_reason(qapp, tmp_path):
@@ -460,3 +463,22 @@ def test_scan_of_a_hand_picked_list_ignores_other_files_in_the_folders(qapp, tmp
     found = collect(worker.file_found)
     worker.run()
     assert [i["path"].name for i in found] == ["a.mp4"] and found[0]["dst_path"] == src / "a_archived.mp4"
+
+
+def test_result_settings_worker_stops_reading_the_videos_when_asked(qapp, tmp_path, monkeypatch):
+    # a new scan and closing the app wait for it: it must not read hundreds of videos first
+    from archive_helper.compressor import workers
+
+    read = []
+    monkeypatch.setattr(workers, "read_compression_settings", lambda paths: {})
+    worker = workers.ResultSettingsWorker([(tmp_path / f"s{i}.mp4", tmp_path / f"r{i}.mp4") for i in range(50)])
+
+    def encoding_from_file(path):
+        read.append(path)
+        if len(read) == 3:
+            worker.stop()
+        return None
+
+    monkeypatch.setattr(workers, "encoding_from_file", encoding_from_file)
+    worker.run()
+    assert len(read) == 3

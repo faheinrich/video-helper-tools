@@ -1,4 +1,5 @@
 import os
+import subprocess
 import sys
 
 import pytest
@@ -134,3 +135,38 @@ def test_stored_settings_are_found_under_the_name_they_were_asked_for(tmp_path, 
     answer = [{"SourceFile": str(tmp_path / "sub" / ".." / "a_archived.mp4"), "CompressionSettings": '{"crf": 20}'}]
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: SimpleNamespace(stdout=json.dumps(answer)))
     assert utils.read_compression_settings([video]) == {str(video): {"crf": 20}}
+
+
+@pytest.mark.parametrize("preset", ["ultrafast", "fast", "medium", "slow"])
+def test_settings_are_read_from_a_video_without_the_settings_tag(tmp_path, preset):
+    # results made by another program or an early version: x265 writes its options into the video
+    import shutil
+    from archive_helper.compressor.model import describe_settings
+    from archive_helper.compressor.utils import encoding_from_file
+
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg not installed")
+    path = tmp_path / f"{preset}.mp4"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=25:duration=0.4",
+                    "-c:v", "libx265", "-preset", preset, "-crf", "23", "-x265-params", "log-level=error",
+                    "-tag:v", "hvc1", str(path)], check=True)
+
+    settings = encoding_from_file(path)
+
+    assert settings == {"read_from_file": True, "codec": "hevc", "max_res": 320, "max_fps": 25.0, "hdr": False,
+                        "encoder": "libx265", "crf": 23, "preset": preset}
+    assert describe_settings(settings) == f"≈ CPU · CRF 23 · {preset} · 320 px · 25 fps"
+
+
+def test_another_encoders_video_shows_its_codec(tmp_path):
+    import shutil
+    from archive_helper.compressor.model import describe_settings
+    from archive_helper.compressor.utils import encoding_from_file
+
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg not installed")
+    path = tmp_path / "h264.mp4"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=30:duration=0.4",
+                    "-c:v", "libx264", "-preset", "ultrafast", "-fflags", "+bitexact", "-map_metadata", "-1", str(path)],
+                   check=True)
+    assert describe_settings(encoding_from_file(path)) == "≈ H264 · 320 px · 30 fps"

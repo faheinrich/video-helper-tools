@@ -18,7 +18,7 @@ from video_helper_core.paths import settings_file
 from video_helper_core.trash import move_to_trash
 from .model import (
     COL_DURATION, COL_FILE, COL_RESULT, COL_SETTINGS, COL_SIZE, COL_STATUS, COL_THUMB,
-    FileDelegate, StatusDelegate, ThumbnailDelegate, VideoFilterProxy, VideoRow, VideoTableModel,
+    FileDelegate, StatusDelegate, finished_problems, ThumbnailDelegate, VideoFilterProxy, VideoRow, VideoTableModel,
 )
 from video_helper_core.dialogs import confirm_after_delay
 from video_helper_core.keep_awake import KeepAwake
@@ -28,14 +28,24 @@ from .utils import (
     prune_thumbnails,
 )
 from .lab import CompressionLabDialog
+from .metadata_view import MetadataDialog
 from .options import FRAME_RATES, QUALITY_PRESETS, RENDERERS, RESOLUTIONS, X265_PRESETS
 from .widgets import CompareVideoDialog, DropLineEdit, DropOverlay, dropped_paths
 from .workers import ArchiveWorker, BlockCheckWorker, DurationProbeWorker, ResultSettingsWorker, ThumbnailLoader, UnifiedScanWorker
 
+def has_status(*statuses):
+    return lambda row: row.status in statuses
+
+
+# The filter chips: key -> which rows they show. "session" and "exists" split "done"; "problem" is what is worth a
+# look at among the finished ones (metadata missing, visible blocks, larger than the original).
 STATUS_FILTERS = [
-    ("all", None), ("planned", {"planned"}), ("running", {"running"}),
-    ("done", {"done", "exists"}), ("skipped", {"skipped"}), ("error", {"error"}),
+    ("all", None), ("planned", has_status("planned")), ("running", has_status("running")),
+    ("done", has_status("done", "exists")), ("session", has_status("done")), ("exists", has_status("exists")),
+    ("problem", lambda row: bool(finished_problems(row))), ("skipped", has_status("skipped")),
+    ("error", has_status("error")),
 ]
+DONE_PARTS = {"session", "exists"}   # shown only when "done" holds both kinds
 
 
 def describe_crf(value):
@@ -492,6 +502,10 @@ class ArchiverGUI(QWidget):
         self.search.setPlaceholderText(tr("Search files"))
         self.search.setClearButtonEnabled(True)
         self.search.setMaximumWidth(240)
+        self.thumbnail_count = QLabel()   # how many previews are loaded, while they load
+        self.thumbnail_count.setProperty("role", "hint")
+        self.thumbnail_count.hide()
+        bar.addWidget(self.thumbnail_count)
         self.search.textChanged.connect(self.proxy.set_text_filter)
         bar.addWidget(self.search)
         return bar
@@ -922,7 +936,8 @@ class ArchiverGUI(QWidget):
             self.duration_worker.stop()
             self.duration_worker.wait()
         if self.settings_worker is not None:
-            self.settings_worker.wait()  # a single exiftool call; results of the old scan are discarded
+            self.settings_worker.stop()   # results of the old scan are discarded
+            self.settings_worker.wait()
         self.total_src_bytes = 0
         self.total_dst_bytes = 0
         self.run_paths = set()
@@ -1193,8 +1208,8 @@ class ArchiverGUI(QWidget):
 
     @Slot(str, object)
     def on_thumbnail_ready(self, path, image):
-        if image is not None and not image.isNull():
-            self.model.set_thumbnail(path, QPixmap.fromImage(image))
+        self.model.set_thumbnail(path, QPixmap.fromImage(image) if image is not None and not image.isNull() else None)
+        self.request_summary()   # the count of loaded previews
 
     @Slot(str, object)
     def on_settings_found(self, path, settings):
@@ -1240,16 +1255,21 @@ class ArchiverGUI(QWidget):
     # ---------------------------------------------------------------- summary
     def refresh_summary(self):
         rows = self.model.rows
-        counts = self.model.counts()
         labels = {
-            "all": tr("All"), "planned": tr("Planned"), "running": tr("Running"),
-            "done": tr("Done"), "skipped": tr("Skipped"), "error": tr("Errors"),
+            "all": tr("All"), "planned": tr("Planned"), "running": tr("Running"), "done": tr("Done"),
+            "session": tr("Done in this session"), "exists": tr("Already archived"), "problem": tr("⚠ With problems"),
+            "skipped": tr("Skipped"), "error": tr("Errors"),
         }
-        for key, statuses in STATUS_FILTERS:
-            count = len(rows) if statuses is None else sum(counts.get(s, 0) for s in statuses)
+        counts = {key: len(rows) if test is None else sum(1 for r in rows if test(r)) for key, test in STATUS_FILTERS}
+        for key, _ in STATUS_FILTERS:
             button = self.filter_buttons[key]
-            button.setText(f"{labels[key]}  {count}")
-            button.setVisible(key == "all" or count > 0)
+            button.setText(f"{labels[key]}  {counts[key]}")
+            visible = 0 < counts[key] < counts["done"] if key in DONE_PARTS else key == "all" or counts[key] > 0
+            button.setVisible(visible or button.isChecked())   # the chosen filter stays, even at 0
+
+        tried = sum(r.thumbnail_tried for r in rows)
+        self.thumbnail_count.setText(tr("Previews {loaded} / {total}", loaded=tried, total=len(rows)))
+        self.thumbnail_count.setVisible(0 < len(rows) and tried < len(rows))
 
         planned = [r for r in rows if r.status in ("planned", "running")]
         measured = [r for r in rows if r.ratio is not None]
@@ -1434,6 +1454,7 @@ class ArchiverGUI(QWidget):
         menu.addAction(tr("Show original"), lambda: open_in_finder(row.src)).setEnabled(src_ok)
         menu.addAction(tr("Show result"), lambda: open_in_finder(row.dst)).setEnabled(dst_ok)
         menu.addAction(tr("Log"), lambda: self.show_log(row)).setEnabled(bool(row.log))
+        menu.addAction(tr("Metadata"), lambda: self.show_metadata(row)).setEnabled(src_ok or dst_ok)
         menu.addSeparator()
         self.add_file_actions(menu, row)
         return menu
@@ -1521,7 +1542,9 @@ class ArchiverGUI(QWidget):
 
     def on_row_double_clicked(self, index):
         row = index.data(Qt.UserRole + 1)
-        if row.src.exists() and row.has_result and row.status != "running":
+        if index.column() == COL_STATUS and row.metadata_missing:
+            self.show_metadata(row)   # "⚠ metadata?": what is missing, side by side
+        elif row.src.exists() and row.has_result and row.status != "running":
             self.compare(row)
         elif row.log or not row.src.exists():
             self.show_log(row)
@@ -1542,6 +1565,14 @@ class ArchiverGUI(QWidget):
             CompareVideoDialog(row.src, row.dst if has_result else None, self).exec()
         finally:
             self.thumbnails.resume()
+
+    def show_metadata(self, row):
+        """Original and result side by side; the original alone while there is no result."""
+        src = row.src if row.src.exists() else None
+        dst = row.dst if row.dst.exists() and row.out_size is not None and row.status != "running" else None
+        if src or dst:
+            self.metadata_dialog = MetadataDialog(src, dst, self)
+            self.metadata_dialog.show()
 
     def show_log(self, row):
         self.log_dialog = LogDialog(row, self)

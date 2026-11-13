@@ -7,6 +7,20 @@ All notable changes to the two apps and the shared core. The format follows
 ## [Unreleased]
 
 ### Archive Helper
+- Added: more status filters: "Done in this session", "Already archived" (both only when the finished videos are of
+  both kinds) and "⚠ With problems" (metadata missing, visible blocks, larger than the original). Sorting by status
+  puts the videos with problems together, right after the errors, grouped by problem.
+- Added: sorting by the preview column goes by brightness (videos without a preview yet at the end); while the
+  previews load, a counter next to the search shows how many are there.
+- Added: results without stored settings (made by another program or an early version) show what the video itself
+  tells, marked with "≈": codec, resolution, frame rate, HDR, and for x265 the CRF and the preset from the options
+  x265 writes into the video.
+- Fixed: results whose metadata was added later showed "Mac GPU · quality None": that record holds no settings.
+- Fixed: a new scan and closing the app no longer wait until the settings of every earlier result are read.
+- Added: a metadata viewer with original and result side by side (right-click > Metadata, or double-click on
+  "⚠ Metadaten?"). It marks what is missing, changed or new, hides what compressing changes by its nature, and
+  opens on the differences when something is missing; with a search over fields and values. It lists also the
+  boxes exiftool has no name for, and on request the data stored with every frame.
 - Fixed: iPhone videos filmed in Cinematic mode lost their two Cinematic keys (`cinematic-video`,
   `cinematic-video-intent`) and showed "⚠ Metadaten?". exiftool does not know these keys and so cannot write them;
   movie-level keys it leaves out are now copied byte for byte.

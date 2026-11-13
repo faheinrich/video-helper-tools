@@ -31,6 +31,31 @@ CONFLICT_COLOR = QColor(226, 84, 72)   # red: the result would replace the origi
 COL_THUMB, COL_FILE, COL_DURATION, COL_SIZE, COL_RESULT, COL_SETTINGS, COL_STATUS = range(7)
 
 
+def mean_lightness(pixmap):
+    """Mean lightness of a picture, 0 (black) to 255 (white)."""
+    from PySide6.QtCore import Qt as _Qt
+
+    pixel = pixmap.toImage().scaled(1, 1, _Qt.IgnoreAspectRatio, _Qt.SmoothTransformation).pixelColor(0, 0)
+    return float(pixel.lightness())
+
+
+def finished_problems(row):
+    """What is worth a look at a finished video: ["metadata", "blocks", "larger"] or a part of it."""
+    if row.status not in ("done", "exists") or row.out_size is None:
+        return []
+    return [kind for kind, found in (("metadata", row.metadata_missing), ("blocks", row.blocky),
+                                     ("larger", row.ratio is not None and row.ratio > 1)) if found]
+
+
+# Sorting by status: finished videos with a problem come together right after the errors, grouped by problem.
+STATUS_SORT_GROUPS = ["running", "error", "problem", "planned", "done", "skipped", "exists"]
+
+
+def status_sort_key(row):
+    problems = finished_problems(row)
+    return (STATUS_SORT_GROUPS.index("problem" if problems else row.status), problems, STATUS_ORDER.index(row.status))
+
+
 def status_label(row):
     if row.conflict and row.status in ("planned", "error"):
         return tr("⚠ Source = target!")
@@ -60,20 +85,26 @@ def describe_settings(settings, detailed=False):
     """Short summary of the stored compression settings, e.g. "CPU · CRF 20 · slow · 1920 px · 30 fps"."""
     if not settings:
         return "" if detailed else "–"
-    if settings.get("encoder") == "libx265":
-        parts = [tr("CPU"), f"CRF {settings.get('crf')}", str(settings.get('preset'))]
+    if settings.get("read_from_file") or not settings.get("encoder"):
+        # read from the video, or only what adding metadata later recorded (no settings of how it was made)
+        lines = [describe_read_settings(settings, detailed)]
+        if not detailed:
+            return lines[0]
     else:
-        parts = [tr("Mac GPU"), tr("quality {value}", value=settings.get('vt_quality'))]
-    parts.append(f"{settings['max_res']} px" if settings.get("max_res") else tr("full resolution"))
-    parts.append(f"{settings['max_fps']} fps" if settings.get("max_fps") else tr("original frame rate"))
-    if settings.get("hdr"):
-        parts.append("HDR")
-    if settings.get("dry_run"):
-        parts.append(tr("test run"))
-    if not detailed:
-        return " · ".join(parts)
-    parts.append(tr("AAC copied") if settings.get("copy_aac") else tr("audio re-encoded"))
-    lines = [" · ".join(parts)]
+        if settings.get("encoder") == "libx265":
+            parts = [tr("CPU"), f"CRF {settings.get('crf')}", str(settings.get('preset'))]
+        else:
+            parts = [tr("Mac GPU"), tr("quality {value}", value=settings.get('vt_quality'))]
+        parts.append(f"{settings['max_res']} px" if settings.get("max_res") else tr("full resolution"))
+        parts.append(f"{settings['max_fps']} fps" if settings.get("max_fps") else tr("original frame rate"))
+        if settings.get("hdr"):
+            parts.append("HDR")
+        if settings.get("dry_run"):
+            parts.append(tr("test run"))
+        if not detailed:
+            return " · ".join(parts)
+        parts.append(tr("AAC copied") if settings.get("copy_aac") else tr("audio re-encoded"))
+        lines = [" · ".join(parts)]
     source = settings.get("source") or {}
     if source.get("name"):
         about = [source["name"]]
@@ -90,6 +121,33 @@ def describe_settings(settings, detailed=False):
     elif settings.get("capture_date_from"):
         lines.append(tr("Capture date written in from {field}.", field=settings["capture_date_from"]))
     return "\n".join(lines)
+
+
+def describe_read_settings(settings, detailed):
+    """The same summary for what was read from a result without the settings tag; it starts with "≈"."""
+    if settings.get("encoder") == "libx265":
+        parts = [tr("CPU")]
+        if settings.get("crf") is not None:
+            parts.append(f"CRF {settings['crf']}")
+        if settings.get("preset"):
+            parts.append(settings["preset"])
+    elif settings.get("encoder") == "hevc_videotoolbox":
+        parts = [tr("Mac GPU")]
+    else:
+        parts = [(settings.get("codec") or "?").upper()]
+    if settings.get("max_res"):
+        parts.append(f"{settings['max_res']} px")
+    if settings.get("max_fps"):
+        parts.append(f"{settings['max_fps']:g} fps")
+    if settings.get("hdr"):
+        parts.append("HDR")
+    if not settings.get("read_from_file"):
+        return "–"   # not read yet
+    text = "≈ " + " · ".join(parts)
+    if not detailed:
+        return text
+    return text + "\n" + tr("No settings stored in the file (made by another program or an early version): read from "
+                            "the video itself. Resolution and frame rate are the result's, not limits.")
 
 
 def format_clock(seconds):
@@ -119,6 +177,8 @@ class VideoRow:
     log: list = field(default_factory=list)
     started_at: float | None = None  # time.monotonic() when its compression started, paused time left out
     took: float | None = None  # seconds its compression took in this session
+    brightness: float | None = None   # mean lightness of its preview picture, 0-255; None until it is loaded
+    thumbnail_tried: bool = False     # the preview picture was loaded or could not be made
 
     @property
     def folder(self):
@@ -186,8 +246,12 @@ class VideoTableModel(QAbstractTableModel):
 
     def set_thumbnail(self, path, pixmap):
         index = self.by_path.get(str(path))
-        if index is None or pixmap is None or pixmap.isNull():
+        if index is None:
             return
+        self.rows[index].thumbnail_tried = True
+        if pixmap is None or pixmap.isNull():
+            return
+        self.rows[index].brightness = mean_lightness(pixmap)
         self.thumbnails[str(path)] = pixmap
         self.dataChanged.emit(self.index(index, COL_THUMB), self.index(index, COL_THUMB))
 
@@ -195,13 +259,14 @@ class VideoTableModel(QAbstractTableModel):
     def sort_key(row, column):
         """Shared by the table sorting and the processing order."""
         return {
-            COL_THUMB: path_sort_key(row),
+            # by brightness, dark first; videos without a picture yet at the end
+            COL_THUMB: (0, row.brightness) if row.brightness is not None else (1, 0.0),
             COL_FILE: path_sort_key(row),
             COL_DURATION: row.duration if row.duration is not None else -1.0,
             COL_SIZE: row.size,
             COL_RESULT: row.ratio if row.ratio is not None else 99.0,
             COL_SETTINGS: describe_settings(row.settings),
-            COL_STATUS: STATUS_ORDER.index(row.status),
+            COL_STATUS: status_sort_key(row),
         }[column]
 
     def counts(self):
@@ -225,7 +290,7 @@ class VideoTableModel(QAbstractTableModel):
         if role == Qt.TextAlignmentRole and section in (COL_DURATION, COL_SIZE, COL_RESULT):
             return int(Qt.AlignRight | Qt.AlignVCenter)
         if role == Qt.ToolTipRole and section == COL_THUMB:
-            return tr("Drag the edge of this column to make the previews bigger.")
+            return tr("Drag the edge of this column to make the previews bigger. Sorting by it goes by brightness.")
         return None
 
     def data(self, index, role=Qt.DisplayRole):
@@ -278,7 +343,8 @@ class VideoTableModel(QAbstractTableModel):
                 more = len(row.metadata_missing) - len(shown)
                 warnings.append(tr("Metadata of the original that is not in the result (keep the original if you need it):")
                                 + "\n" + "\n".join("  " + name for name in shown)
-                                + ("\n  " + tr("… and {count} more", count=more) if more else ""))
+                                + ("\n  " + tr("… and {count} more", count=more) if more else "")
+                                + "\n" + tr("Double-click shows all metadata side by side."))
             if warnings:
                 return "\n\n".join(warnings)
             if row.note:
@@ -307,6 +373,7 @@ class VideoFilterProxy(QSortFilterProxyModel):
         self.setSortRole(Qt.UserRole)
 
     def set_status_filter(self, status):
+        """status: a set of statuses, a function row -> bool, or None for all rows."""
         self.beginFilterChange()
         self.status_filter = status
         self.endFilterChange(QSortFilterProxyModel.Direction.Rows)
@@ -331,7 +398,8 @@ class VideoFilterProxy(QSortFilterProxyModel):
 
     def filterAcceptsRow(self, source_row, source_parent):
         row = self.sourceModel().rows[source_row]
-        if self.status_filter and row.status not in self.status_filter:
+        if self.status_filter is not None and not (
+                self.status_filter(row) if callable(self.status_filter) else row.status in self.status_filter):
             return False
         if self.text_filter:
             return self.text_filter in row.src.name.lower() or self.text_filter in row.folder.lower()

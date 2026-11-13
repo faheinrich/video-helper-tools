@@ -347,6 +347,87 @@ def read_compression_settings(paths):
     return found
 
 
+# x265's presets by the options it writes into every video it makes (me: 0 dia, 1 hex, 3 star):
+# (me, subme, ref, rd, rc-lookahead) -> preset
+X265_PRESET_OPTIONS = {
+    (0, 0, 1, 2, 5): "ultrafast", (1, 1, 1, 2, 10): "superfast", (1, 1, 2, 2, 15): "veryfast",
+    (1, 2, 2, 2, 15): "faster", (1, 2, 3, 2, 15): "fast", (1, 2, 3, 3, 20): "medium", (3, 3, 4, 4, 25): "slow",
+    (3, 4, 4, 6, 40): "slower", (3, 4, 5, 6, 40): "veryslow", (3, 5, 5, 6, 60): "placebo",
+}
+X265_INFO = b"x265 (build"
+X265_SEARCH_BYTES = 8 * 1024 * 1024   # the options come with the first frame, near the start of the media data
+
+
+def x265_options(path):
+    """The options x265 wrote into the video ({"crf": "20.0", "me": "3", ...}), or None for another encoder."""
+    from .boxes import top_level_boxes
+
+    # ffmpeg also puts the message into the track's decoder setup (hvcC, in moov), x265 into the first frame
+    try:
+        mdat = next((b for b in top_level_boxes(path) if b[0] == b"mdat"), None)
+        with open(path, "rb") as f:
+            data = f.read(X265_SEARCH_BYTES)
+            start = data.find(X265_INFO)
+            if start < 0 and mdat is not None and mdat[1] > X265_SEARCH_BYTES - 1024:
+                f.seek(mdat[1])
+                data = f.read(X265_SEARCH_BYTES)
+                start = data.find(X265_INFO)
+    except OSError:
+        return None
+    if start < 0:
+        return None
+    end = start
+    while end < len(data) and 0x20 <= data[end] < 0x7F:   # the text ends where the SEI message ends
+        end += 1
+    text = data[start:end].decode("ascii")
+    return dict(word.split("=", 1) for word in text.partition(" - options: ")[2].split() if "=" in word)
+
+
+def x265_preset(options):
+    try:
+        key = tuple(int(options[name]) for name in ("me", "subme", "ref", "rd", "rc-lookahead"))
+    except (KeyError, ValueError):
+        return None
+    return X265_PRESET_OPTIONS.get(key)
+
+
+def encoding_from_file(path):
+    """What can be read from a video about how it was encoded, for results without the settings tag (made by
+    another program or an early version): a settings dict like the stored one, with "read_from_file": True."""
+    cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+           "stream=codec_name,width,height,avg_frame_rate,color_transfer:stream_tags=encoder", "-of", "json", str(path)]
+    try:
+        streams = json.loads(subprocess.run(cmd, capture_output=True, text=True, timeout=60).stdout).get("streams", [])
+    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
+        return None
+    if not streams:
+        return None
+    stream = streams[0]
+    settings = {"read_from_file": True, "codec": stream.get("codec_name")}
+    if stream.get("width") and stream.get("height"):
+        settings["max_res"] = max(stream["width"], stream["height"])
+    try:
+        numerator, denominator = (int(n) for n in stream.get("avg_frame_rate", "0/0").split("/"))
+        if numerator and denominator:
+            settings["max_fps"] = round(numerator / denominator, 2)
+    except ValueError:
+        pass
+    settings["hdr"] = stream.get("color_transfer") in ("smpte2084", "arib-std-b67")
+    encoder = (stream.get("tags") or {}).get("encoder", "")
+    options = x265_options(path) if stream.get("codec_name") == "hevc" else None
+    if options is not None:
+        settings["encoder"] = "libx265"
+        if options.get("rc") == "crf" and options.get("crf"):
+            crf = float(options["crf"])
+            settings["crf"] = int(crf) if crf.is_integer() else crf
+        settings["preset"] = x265_preset(options)
+    elif "libx265" in encoder:
+        settings["encoder"] = "libx265"
+    elif "videotoolbox" in encoder:
+        settings["encoder"] = "hevc_videotoolbox"
+    return settings
+
+
 _DATE_RE = re.compile(r"(\d{4}):(\d\d):(\d\d) (\d\d):(\d\d):(\d\d)(?:\.\d+)?\s*(Z|[+-]\d\d:?\d\d)?")
 
 
@@ -433,10 +514,12 @@ def expected_to_change(group, tag):
 _ARG_RE = re.compile(r"^-([^:=]+):([^=]+)=(.*)$")
 
 
-def metadata_entries(path):
-    """[(group, tag, value)] of everything exiftool reads from path, duplicates included."""
+def metadata_entries(path, unknown=False, embedded=False):
+    """[(group, tag, value)] of everything exiftool reads from path, duplicates included. unknown: also the boxes
+    exiftool has no name for (as Unknown_xxxx); embedded: also the data per frame in the media data (GPS tracks,
+    Apple's per-frame camera data), which takes a while on long videos."""
     cmd = ["exiftool", "-config", str(EXIFTOOL_CONFIG), "-a", "-G1", "-s", "-args", "-api", "LargeFileSupport=1",
-           "-charset", "filename=utf8", str(path)]
+           "-charset", "filename=utf8", *(["-u"] if unknown else []), *(["-ee"] if embedded else []), str(path)]
     result = subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=300)
     return [match.groups() for match in map(_ARG_RE.match, result.stdout.splitlines()) if match]
 

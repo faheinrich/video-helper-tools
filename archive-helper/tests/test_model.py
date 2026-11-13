@@ -4,7 +4,7 @@ import pytest
 from PySide6.QtCore import Qt
 
 from archive_helper.compressor.model import (
-    COL_DURATION, COL_FILE, COL_RESULT, COL_SETTINGS, COL_SIZE, COL_STATUS,
+    COL_DURATION, COL_FILE, COL_RESULT, COL_SETTINGS, COL_SIZE, COL_STATUS, COL_THUMB,
     VideoFilterProxy, VideoRow, VideoTableModel, describe_settings, format_clock, status_label,
 )
 
@@ -185,3 +185,52 @@ def test_delegates_paint_and_size_every_row(qapp, model):
             assert delegate.sizeHint(option, index).height() > 0
             delegate.paint(painter, option, index)
     painter.end()
+
+
+def test_sorting_by_status_puts_finished_videos_with_problems_together(qapp):
+    from archive_helper.compressor.model import finished_problems
+
+    lost = {"metadata_missing": ["Keys:Cinematic-video"]}
+    rows = [row("a.mp4", status="exists", out_size=50), row("b.mp4", status="done", out_size=50, settings=lost),
+            row("c.mp4", status="planned"), row("d.mp4", status="exists", out_size=50, settings=lost),
+            row("e.mp4", status="done", out_size=150), row("f.mp4", status="error"), row("g.mp4", status="done", out_size=50)]
+    model = VideoTableModel()
+    model.reset(rows)
+    proxy = VideoFilterProxy()
+    proxy.setSourceModel(model)
+    proxy.sort(COL_STATUS, Qt.AscendingOrder)
+    names = [proxy.index(r, COL_FILE).data() for r in range(proxy.rowCount())]
+    # errors, then the finished ones worth a look grouped by problem (this session's or not), then the rest
+    assert names == ["f.mp4", "e.mp4", "b.mp4", "d.mp4", "c.mp4", "g.mp4", "a.mp4"]
+    assert finished_problems(rows[4]) == ["larger"] and finished_problems(rows[2]) == []
+
+
+def test_sorting_by_preview_goes_by_brightness_and_counts_the_loaded_ones(qapp):
+    from PySide6.QtGui import QColor, QPixmap
+
+    def picture(gray):
+        pixmap = QPixmap(8, 8)
+        pixmap.fill(QColor(gray, gray, gray))
+        return pixmap
+
+    model = VideoTableModel()
+    model.reset([row("a.mp4"), row("b.mp4"), row("c.mp4"), row("d.mp4")])
+    model.set_thumbnail("/src/a.mp4", picture(200))
+    model.set_thumbnail("/src/b.mp4", None)           # could not be made
+    model.set_thumbnail("/src/c.mp4", picture(20))
+    proxy = VideoFilterProxy()
+    proxy.setSourceModel(model)
+    proxy.sort(COL_THUMB, Qt.AscendingOrder)
+    assert [proxy.index(r, COL_FILE).data() for r in range(4)][:2] == ["c.mp4", "a.mp4"]   # dark first, then the rest
+    assert [r.thumbnail_tried for r in model.rows] == [True, True, True, False]
+    assert model.rows[2].brightness == 20
+
+
+def test_a_tag_that_only_records_added_metadata_is_no_settings():
+    # adding metadata to an old result stored the source but no settings: shown as unknown until the video is read
+    record = {"metadata_added_at": "2026-11-11T14:46:37+01:00", "source": {"name": "IMG_1.MOV"}}
+    assert describe_settings(record) == "–"
+    read = {**record, "read_from_file": True, "codec": "hevc", "encoder": "hevc_videotoolbox", "max_res": 3840,
+            "max_fps": 59.94, "hdr": True}
+    assert describe_settings(read).startswith("≈ ") and "3840 px · 59.94 fps · HDR" in describe_settings(read)
+    assert "IMG_1.MOV" in describe_settings(read, detailed=True)

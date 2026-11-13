@@ -17,7 +17,7 @@ from video_helper_core.trash import move_to_trash
 from .boxes import BoxError, copy_maker_boxes, copy_movie_keys, copy_track_metadata, transplant_tracks
 from .utils import (
     DEFAULT_POSTFIX, EXIFTOOL_CONFIG, block_sample_starts, blockiness_command, is_blocky, parse_blockiness, DurationCache, partial_path, path_key, same_file, copy_file_times, format_size, generate_thumbnail, get_thumbnail_path, get_video_info, is_photos_compatible,
-    LEGACY_TAG_COPIES, capture_date_arguments, copy_sidecars, is_quicktime, metadata_as_text, missing_metadata, source_description, get_audio_streams, get_hdr_color, parse_ffmpeg_time, read_compression_settings, settings_tag_argument,
+    LEGACY_TAG_COPIES, capture_date_arguments, encoding_from_file, copy_sidecars, is_quicktime, metadata_as_text, missing_metadata, source_description, get_audio_streams, get_hdr_color, parse_ffmpeg_time, read_compression_settings, settings_tag_argument,
 )
 
 class UnifiedScanWorker(QThread):
@@ -967,9 +967,24 @@ class ResultSettingsWorker(QThread):
     def __init__(self, pairs):
         super().__init__()
         self.pairs = list(pairs)  # (source path, result path)
+        self.stopped = False
+
+    def stop(self):
+        """Ends the reading from the videos after the current one (a new scan or closing must not wait for all)."""
+        self.stopped = True
 
     def run(self):
         found = read_compression_settings([dst for _, dst in self.pairs])
         for src, dst in self.pairs:
             if str(dst) in found:
                 self.settings_found.emit(str(src), found[str(dst)])
+        # results without settings (no tag, or one that only records metadata added later): what the file itself
+        # tells; afterwards, so the tagged ones are shown first
+        for src, dst in self.pairs:
+            if self.stopped:
+                return
+            stored = found.get(str(dst)) or {}
+            if not stored.get("encoder"):
+                settings = encoding_from_file(dst)
+                if settings:
+                    self.settings_found.emit(str(src), {**stored, **settings})

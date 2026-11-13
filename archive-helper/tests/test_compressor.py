@@ -321,6 +321,27 @@ def test_parallel_videos_accept_custom_values(qapp, make_gui):
     assert gui.spin_jobs.value() == 12
 
 
+def test_finished_videos_split_into_this_session_already_archived_and_with_problems(qapp, make_gui):
+    from pathlib import Path
+    from archive_helper.compressor.model import VideoRow
+
+    gui = make_gui()
+    lost = {"metadata_missing": ["Keys:Model"]}
+    gui.model.reset([
+        VideoRow(src=Path("/a/one.mp4"), dst=Path("/b/one_archived.mp4"), size=10, status="done", out_size=5),
+        VideoRow(src=Path("/a/two.mp4"), dst=Path("/b/two_archived.mp4"), size=20, status="exists", out_size=8),
+        VideoRow(src=Path("/a/three.mp4"), dst=Path("/b/three_archived.mp4"), size=30, status="exists", out_size=9,
+                 settings=lost),
+    ])
+    gui.refresh_summary()
+    for key, count in (("done", 3), ("session", 1), ("exists", 2), ("problem", 1)):
+        assert gui.filter_buttons[key].isVisibleTo(gui)
+        assert gui.filter_buttons[key].text().endswith(f"  {count}")
+        gui.set_filter(key)
+        assert gui.proxy.rowCount() == count
+    assert gui.proxy.index(0, 1).data(0x0100 + 1).src.name == "three.mp4"   # Qt.UserRole + 1: the row
+
+
 def test_status_filter_and_search(qapp, make_gui):
     from pathlib import Path
     from archive_helper.compressor.model import VideoRow
@@ -337,6 +358,8 @@ def test_status_filter_and_search(qapp, make_gui):
 
     gui.set_filter("done")
     assert gui.proxy.rowCount() == 1
+    # one kind of finished video only: no chips that would repeat "done"
+    assert not gui.filter_buttons["session"].isVisibleTo(gui) and not gui.filter_buttons["exists"].isVisibleTo(gui)
     gui.set_filter("all")
     gui.proxy.set_text_filter("thr")
     assert gui.proxy.rowCount() == 1
@@ -755,7 +778,7 @@ def test_settings_are_stored_in_the_result_and_shown_after_a_restart(qapp, make_
 
 
 @requires_ffmpeg
-def test_results_made_before_settings_were_recorded_show_a_dash(qapp, make_gui, tmp_path):
+def test_results_made_before_settings_were_recorded_show_what_the_video_tells(qapp, make_gui, tmp_path):
     from archive_helper.compressor.model import COL_SETTINGS
 
     src, dst = tmp_path / "src", tmp_path / "dst"
@@ -767,8 +790,8 @@ def test_results_made_before_settings_were_recorded_show_a_dash(qapp, make_gui, 
     scan(qapp, gui, src, dst)
     gui.settings_worker.wait(30_000)
     qapp.processEvents()
-    assert gui.model.rows[0].settings is None
-    assert gui.model.index(0, COL_SETTINGS).data() == "–"
+    assert gui.model.rows[0].settings["read_from_file"]
+    assert gui.model.index(0, COL_SETTINGS).data().startswith("≈ H264 · ")
 
 
 def test_settings_summary_for_videotoolbox():

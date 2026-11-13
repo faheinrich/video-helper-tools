@@ -773,3 +773,17 @@ def test_a_stop_while_the_command_is_prepared_also_stops_ffmpeg(qapp, tmp_path, 
     begin = time.monotonic()
     worker.run()
     assert time.monotonic() - begin < 10 and done == []
+
+
+@requires_ffmpeg
+def test_a_variant_changed_while_encoding_is_marked_when_the_encoding_ends(qapp, lab):
+    # Lab: encoding -> done, with a variant changed meanwhile: its result is of the old settings
+    second = lab.columns[1]
+    lab.encode()
+    second.spin_quality.setValue(second.spin_quality.value() + 5)
+    wait_for_thread(qapp, lab.lab_worker)
+    wait_for_thread(qapp, lab.frame_worker)
+    spin(200)
+    assert not lab.is_up_to_date(second)
+    assert "Geändert" in second.result.text()
+    assert "Geändert" not in lab.columns[0].result.text()

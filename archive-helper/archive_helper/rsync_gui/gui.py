@@ -15,6 +15,7 @@ from video_helper_core.keep_awake import KeepAwake
 from video_helper_core.notify import notify
 from video_helper_core.style import STYLE, caption
 
+RSYNC_PROGRAM = "rsync"   # replaced in tests
 RSYNC_ARGS = ["-av", "--del", "--partial", "--progress", "--modify-window=1", "--size-only"]
 
 # rsync output lines that are not file names.
@@ -92,6 +93,8 @@ class RsyncSyncGUI(QWidget):
         self.process.readyReadStandardOutput.connect(self.handle_stdout)
         self.process.readyReadStandardError.connect(self.handle_stderr)
         self.process.finished.connect(self.process_finished)
+        # rsync missing (as usually on Windows) or not startable: Qt then reports only this, never finished
+        self.process.errorOccurred.connect(self.process_error)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_elapsed)
         self.set_status(tr("Ready"))
@@ -202,7 +205,7 @@ class RsyncSyncGUI(QWidget):
         args = [*RSYNC_ARGS, src, tgt]
         self.append_log(tr("Running command: {command}", command="rsync " + " ".join(args)))
         self.stopped_by_user = False
-        self.process.start("rsync", args)
+        self.process.start(RSYNC_PROGRAM, args)
         self.update_keep_awake()
 
     def update_keep_awake(self):
@@ -242,12 +245,23 @@ class RsyncSyncGUI(QWidget):
         data = self.process.readAllStandardError().data().decode('utf-8', errors='replace')
         self.append_log(data, "<font color='red'>{}</font>")
 
+    def process_error(self, error):
+        if error != QProcess.FailedToStart:
+            return   # a crash or kill ends with finished as well
+        self.keep_awake.stop()
+        self.timer.stop()
+        self.set_run_mode(False)
+        self.set_status(tr("Error"), "warn")
+        self.append_log(tr("rsync could not be started: {error}", error=self.process.errorString()), "<b>{}</b>")
+
     def process_finished(self, exitCode, exitStatus):
         self.keep_awake.stop()
         self.timer.stop()
         self.update_elapsed()
         self.set_run_mode(False)
-        if exitStatus == QProcess.NormalExit and exitCode == 0:
+        if self.stopped_by_user:
+            self.set_status(tr("Stopped"), "warn")
+        elif exitStatus == QProcess.NormalExit and exitCode == 0:
             self.progress.setValue(100)
             self.set_status(tr("Done"), "good")
             self.append_log(tr("Sync completed successfully!"), "<b>{}</b>")

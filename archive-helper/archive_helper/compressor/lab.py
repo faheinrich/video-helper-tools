@@ -826,6 +826,7 @@ class CompressionLabDialog(QDialog):
         self.estimate_label.setText("")
         if self.results:
             self.status.setText(tr("Done. Drag a frame to move all views, or choose a zoom; “Use these settings” takes a variant over."))
+        self.refresh_changed()   # a variant changed while it was encoded shows that its result is of the old settings
 
     def remaining_seconds(self):
         done = len(self.finished_seconds) + len(getattr(self, "failed", set()) & set(self.to_encode))

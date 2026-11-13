@@ -394,3 +394,17 @@ def test_movie_keys_exiftool_does_not_know_reach_the_result(qapp, tmp_path):
     assert keys(out) == keys(clip)
     assert "metadata_missing" not in data["settings"]
     assert copy_movie_keys(clip, out) == []   # nothing doubled
+
+
+@requires_exiftool
+def test_a_box_of_a_kind_not_seen_before_is_reported_when_it_is_lost(tmp_path):
+    # exiftool has no name for it; the comparison still sees it (and ignores empty padding)
+    from archive_helper.compressor.boxes import make_box
+    from archive_helper.compressor.utils import missing_metadata
+
+    src = with_boxes(make_clip(tmp_path / "a.mp4", size="320x240", seconds=1), make_box(b"zqxw", b"camera data"),
+                     make_box(b"free", b"\0" * 32))
+    dst = make_clip(tmp_path / "b.mp4", size="320x240", seconds=1)
+    missing = missing_metadata(src, dst)
+    assert any("zqxw" in name for name in missing), missing
+    assert not any("Free" in name for name in missing)

@@ -26,6 +26,12 @@ QPushButton[role="segment"]:first-of-type { border-top-left-radius: 6px; border-
 """
 
 
+class SoundError(Exception):
+    def __init__(self, path):
+        super().__init__(str(path))
+        self.path = Path(path)
+
+
 class VideoSyncGUI(QWidget):
     def __init__(self):
         super().__init__()
@@ -245,16 +251,30 @@ class VideoSyncGUI(QWidget):
         self.player1.setSource(QUrl.fromLocalFile(str(self.vid1_path)))
         self.player2.setSource(QUrl.fromLocalFile(str(self.vid2_path)))
 
-        self.generate_waveforms()
+        try:
+            self.generate_waveforms()
+        except SoundError as e:
+            self.sound_problem(e)
+
+    def sound_problem(self, error):
+        QMessageBox.warning(self, tr("Sound"), tr(
+            "The sound of {name} could not be read. Does the video have a sound track?", name=error.path.name))
+
+    def read_sound(self, video_path, audio_path, sample_rate):
+        """The video's first sound track, mono; SoundError when there is none or it cannot be read."""
+        try:
+            extract_audio_tracks(video_path, audio_path)
+            return librosa.load(str(audio_path), sr=sample_rate, mono=True)[0]
+        except Exception as e:   # ffmpeg failed (no sound track, broken file) or the result cannot be read
+            raise SoundError(video_path) from e
 
     def generate_waveforms(self):
         # Generate waveforms for both videos
         self.wf_pixmaps = [None, None]
         for i, vid_path in enumerate([self.vid1_path, self.vid2_path], 1):
             aud_path = Path(self.temp_dir) / f"wf_aud{i}.wav"
-            extract_audio_tracks(vid_path, aud_path)
-            
-            sig, sr = librosa.load(str(aud_path), sr=8000, mono=True)
+            sr = 8000
+            sig = self.read_sound(vid_path, aud_path, sr)
             
             # Constant scale: 100 pixels per second
             pixels_per_second = 100
@@ -345,15 +365,13 @@ class VideoSyncGUI(QWidget):
         if not self.vid1_path or not self.vid2_path:
             return
         
-        aud1 = Path(self.temp_dir) / "aud1.wav"
-        aud2 = Path(self.temp_dir) / "aud2.wav"
-        
-        extract_audio_tracks(self.vid1_path, aud1)
-        extract_audio_tracks(self.vid2_path, aud2)
-        
         sr = 16000
-        sig1, _ = librosa.load(str(aud1), sr=sr, mono=True)
-        sig2, _ = librosa.load(str(aud2), sr=sr, mono=True)
+        try:
+            sig1 = self.read_sound(self.vid1_path, Path(self.temp_dir) / "aud1.wav", sr)
+            sig2 = self.read_sound(self.vid2_path, Path(self.temp_dir) / "aud2.wav", sr)
+        except SoundError as e:
+            self.sound_problem(e)
+            return
 
         shift_samples = calculate_shift_fft(sig1, sig2)
         self.shift = shift_samples / sr
@@ -464,21 +482,23 @@ class VideoSyncGUI(QWidget):
             return
         
         target_dir = Path(target_dir_str)
-        target_dir.mkdir(parents=True, exist_ok=True)
-
-        if self.shift > 0:
-            # vid_1 starts before vid_2, so we need to trim vid_1 and copy vid_2
-            start_time = self.shift
-            print(f"Trimming {self.vid1_path} by {start_time:.2f} seconds.")
-            shutil.copy(self.vid2_path, target_dir / (self.vid2_path.stem + "_sync.mp4"))
-            trim_video(self.vid1_path, start_time=start_time, output_path=target_dir / (self.vid1_path.stem + "_sync.mp4"))
-        else:
-            # vid_2 starts before vid_1, so we need to trim vid_2 and copy vid_1
-            start_time = -self.shift
-            print(f"Trimming {self.vid2_path} by {start_time:.2f} seconds.")
-            shutil.copy(self.vid1_path, target_dir / (self.vid1_path.stem + "_sync.mp4"))
-            trim_video(self.vid2_path, start_time=start_time, output_path=target_dir / (self.vid2_path.stem + "_sync.mp4"))
-        
+        try:
+            target_dir.mkdir(parents=True, exist_ok=True)
+            if self.shift > 0:
+                # vid_1 starts before vid_2, so we need to trim vid_1 and copy vid_2
+                start_time = self.shift
+                print(f"Trimming {self.vid1_path} by {start_time:.2f} seconds.")
+                shutil.copy(self.vid2_path, target_dir / (self.vid2_path.stem + "_sync.mp4"))
+                trim_video(self.vid1_path, start_time=start_time, output_path=target_dir / (self.vid1_path.stem + "_sync.mp4"))
+            else:
+                # vid_2 starts before vid_1, so we need to trim vid_2 and copy vid_1
+                start_time = -self.shift
+                print(f"Trimming {self.vid2_path} by {start_time:.2f} seconds.")
+                shutil.copy(self.vid1_path, target_dir / (self.vid1_path.stem + "_sync.mp4"))
+                trim_video(self.vid2_path, start_time=start_time, output_path=target_dir / (self.vid2_path.stem + "_sync.mp4"))
+        except Exception as e:   # ffmpeg failed, disk full, no permission
+            QMessageBox.critical(self, tr("Save synced videos"), tr("The synced videos could not be saved: {error}", error=e))
+            return
         QMessageBox.information(self, tr("Save synced videos"), tr("Synced videos saved to:\n{folder}", folder=target_dir))
 
 if __name__ == "__main__":

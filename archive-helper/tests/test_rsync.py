@@ -187,6 +187,7 @@ def test_stopping_a_backup_by_hand_sends_no_notification(rsync, tmp_path, monkey
     assert time.monotonic() - begin < 5   # stopped, not waited out
     spin(50)
     assert notified == [] and rsync.keep_awake.stops == 1
+    assert rsync.values["status"].text() == "Gestoppt"   # not "Fehler": stopping was wanted
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="uses the POSIX sleep command")
@@ -210,3 +211,22 @@ def test_backup_keep_awake_checkbox_decides(rsync, tmp_path, monkeypatch):
     rsync.stop_sync()   # right away, while the process may still be starting
     wait_for(rsync.process.finished, timeout_ms=10_000)
     assert time.monotonic() - begin < 5   # stopped, not waited out
+
+
+def test_an_rsync_that_cannot_start_ends_the_sync_with_an_error(rsync, tmp_path, monkeypatch):
+    # rsync: ready -> running -> error without finished (Qt reports only that it failed to start, e.g. on Windows)
+    from archive_helper.rsync_gui import gui as rsync_module
+
+    monkeypatch.setattr(rsync_module, "RSYNC_PROGRAM", str(tmp_path / "no-rsync-here"))
+    confirm(monkeypatch)
+    rsync.src_edit.setText(str(tmp_path))
+    rsync.tgt_edit.setText(str(tmp_path / "target"))
+    rsync.start_sync()
+    for _ in range(100):
+        if not rsync.timer.isActive():
+            break
+        spin(20)
+    assert not rsync.is_busy() and not rsync.timer.isActive()
+    assert rsync.sync_btn.property("mode") == "start"
+    assert rsync.values["status"].text() == "Fehler"
+    assert "konnte nicht gestartet werden" in rsync.log_output.toPlainText()

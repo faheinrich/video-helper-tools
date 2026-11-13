@@ -95,3 +95,20 @@ def test_without_a_result_the_viewer_shows_the_original(qapp, tmp_path):
     assert ("same", "Keys", "Make", "Apple", "") in dialog.rows
     assert not dialog.only_differences.isEnabled()
     dialog.close()
+
+
+def test_only_the_answer_to_the_latest_reading_is_shown(qapp, tmp_path, monkeypatch):
+    # reading -> reading again (per-frame data switched on): an earlier, slower answer must not replace the newer one
+    from archive_helper.compressor import metadata_view
+
+    monkeypatch.setattr(metadata_view.threading, "Thread",
+                        lambda target, args, daemon: type("T", (), {"start": lambda self: None})())
+    dialog = metadata_view.MetadataDialog(tmp_path / "a.mp4", tmp_path / "b.mp4")
+    dialog.embedded.setChecked(True)   # second reading
+    newer = [("same", "Keys", "Make", "Apple", "Apple")]
+    dialog.on_loaded(2, newer)
+    dialog.on_loaded(1, [("missing", "Keys", "Model", "x", "")])
+    assert dialog.rows == newer
+    dialog.on_loaded(2, "OSError: gone")
+    assert "gone" in dialog.summary.text()
+    dialog.close()

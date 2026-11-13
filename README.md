@@ -5,6 +5,7 @@
 # Video Helper Tools
 
 [![Tests](https://github.com/faheinrich/video-helper-tools/actions/workflows/tests.yml/badge.svg)](https://github.com/faheinrich/video-helper-tools/actions/workflows/tests.yml)
+[![codecov](https://codecov.io/gh/faheinrich/video-helper-tools/graph/badge.svg)](https://codecov.io/gh/faheinrich/video-helper-tools)
 
 Two desktop apps for working with videos, built from one repository:
 
@@ -24,6 +25,12 @@ core/              video-helper-core: shared by both apps
 archive-helper/    Archive Helper (package archive_helper)
 analysis-helper/   Analysis Helper (package analysis_helper)
 ```
+
+## Documentation
+
+- [Features](docs/features.md): everything the two apps do
+- [Architecture](docs/architecture.md): packages, threads, the metadata pipeline, data on disk, tests, CI
+- [State machines](docs/state-machines.md): every state and transition, with the tests that cover them
 
 ## Development
 

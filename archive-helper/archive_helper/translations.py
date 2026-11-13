@@ -390,4 +390,6 @@ register_german({
     'No settings stored in the file (made by another program or an early version): read from the video itself. Resolution and frame rate are the result\'s, not limits.': 'Keine Einstellungen in der Datei gespeichert (mit einem anderen Programm oder einer frühen Version gemacht): aus dem Video selbst gelesen. Auflösung und Bildrate sind die des Ergebnisses, keine Grenzen.',
     'Data per frame': 'Daten pro Bild',
     'Also reads the data stored with every frame (GPS tracks, camera data per frame). Takes a while on long videos.': 'Liest auch die Daten, die mit jedem Bild gespeichert sind (GPS-Spuren, Kameradaten pro Bild). Dauert bei langen Videos eine Weile.',
+    'rsync could not be started: {error}': 'rsync konnte nicht gestartet werden: {error}',
+    'Stopped': 'Gestoppt',
 })

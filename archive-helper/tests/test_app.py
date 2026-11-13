@@ -174,3 +174,32 @@ def test_about_dialog_tells_how_the_update_check_went(qapp, monkeypatch):
     window.show_about()
     assert "fehlgeschlagen" in texts[-1] and "&lt;bad&gt;" in texts[-1]   # shown as text, not as markup
     window.close()
+
+
+@pytest.mark.parametrize("answer, closes", [(QMessageBox.No, False), (QMessageBox.Yes, True)])
+def test_closing_while_a_job_runs_asks_first(qapp, monkeypatch, answer, closes):
+    # window: open -> (job running) -> asked -> stays open, or tools shut down and closed
+    window = app.ArchiveHelperWindow()
+    window.show()
+    window.show_tool("compressor")
+    tool = window.compressor_tab
+    stopped = []
+    monkeypatch.setattr(tool, "is_busy", lambda: True)
+    monkeypatch.setattr(tool, "shutdown", lambda: stopped.append(True))
+    asked = []
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: asked.append(a[1]) or answer))
+    window.close()
+    assert len(asked) == 1
+    assert window.isVisible() is not closes
+    assert bool(stopped) is closes
+    monkeypatch.undo()
+    window.close()
+
+
+def test_closing_without_a_job_does_not_ask(qapp, monkeypatch):
+    window = app.ArchiveHelperWindow()
+    window.show()
+    window.show_tool("compressor")
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: pytest.fail("asked")))
+    window.close()
+    assert not window.isVisible()

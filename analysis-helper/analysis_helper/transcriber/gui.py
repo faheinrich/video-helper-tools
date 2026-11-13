@@ -64,6 +64,9 @@ class TranscriptionThread(QThread):
     
     def stop(self):
         self._stop_event.set()
+
+    def stopped(self):
+        return self._stop_event.is_set()
     
     def run(self):
         try:
@@ -279,6 +282,8 @@ class WhisperGui(QWidget):
         self.settings_file = Path.home() / ".whisper_gui_settings.json"
         self.thread_pool = QThreadPool()
         self.batch_files = []
+        self.batch_queue = []   # the files of the running batch; empty when none is running
+        self.batch_stopped = False
         self.current_batch_index = -1
         self.init_ui()
         self.load_settings()
@@ -647,6 +652,7 @@ class WhisperGui(QWidget):
                 return
         
         self.current_batch_index = 0
+        self.batch_stopped = False
         self.start_batch_btn.setEnabled(False)
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
@@ -682,30 +688,40 @@ class WhisperGui(QWidget):
         self.transcription_thread.start()
     
     def on_batch_item_finished(self, success, message):
-        # Mark list item as done or failed
+        stopped = getattr(self, "batch_stopped", False)
+        # Mark list item as done, failed or stopped
         if getattr(self, 'current_batch_index', -1) >= 0 and self.current_batch_index < len(self.batch_queue):
             video_path = self.batch_queue[self.current_batch_index]
             for i in range(self.video_list.count()):
                 item = self.video_list.item(i)
                 if item.data(Qt.UserRole) == video_path:
                     rel_path = os.path.relpath(video_path, self.folder_input.text())
-                    status = tr("Done") if success else tr("Failed")
+                    status = tr("Stopped") if stopped else tr("Done") if success else tr("Failed")
                     item.setText(f"{rel_path} - {status}")
                     break
 
-        if not success:
-            self.log_output.append(tr("Failed: {message}", message=message))
-            # Optional: Ask user if they want to continue? For now, just continue
-        
+        if not success and not stopped:
+            self.log_output.append(tr("Failed: {message}", message=message))   # the batch goes on with the next file
+
         self.release_transcription_thread()
+        if stopped:   # Stop ends the whole batch, not just the file being transcribed
+            self.on_batch_finished(stopped=True)
+            return
 
         self.current_batch_index += 1
         self.process_next_batch_item()
     
-    def on_batch_finished(self):
+    def on_batch_finished(self, stopped=False):
+        self.batch_queue = []   # no batch is going any more (the progress no longer marks its files)
         self.start_batch_btn.setEnabled(True)
         self.start_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
+        if stopped:
+            self.progress_bar.setRange(0, 100)
+            self.progress_bar.setValue(0)
+            self.progress_label.setText(tr("Stopped"))
+            self.log_output.append(tr("Batch transcription stopped."))
+            return
         self.progress_bar.setValue(100)
         self.progress_label.setText(tr("Batch Finished"))
         self.log_output.append(tr("Batch transcription finished."))
@@ -871,6 +887,8 @@ class WhisperGui(QWidget):
     
     def stop_transcription(self):
         if self.transcription_running():
+            if self.batch_queue:
+                self.batch_stopped = True
             self.log_output.append(tr("Stopping transcription..."))
             self.transcription_thread.stop()
             self.stop_btn.setEnabled(False)
@@ -917,6 +935,11 @@ class WhisperGui(QWidget):
             pass
 
     def on_transcription_finished(self, success, message):
+        thread = getattr(self, "transcription_thread", None)
+        try:
+            stopped = thread is not None and thread.stopped()
+        except RuntimeError:
+            stopped = False
         self.release_transcription_thread()
 
         self.start_btn.setEnabled(True)
@@ -924,8 +947,10 @@ class WhisperGui(QWidget):
         self.stop_btn.setEnabled(False)
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(100 if success else 0)
-        self.progress_label.setText(tr("Finished") if success else tr("Failed"))
+        self.progress_label.setText(tr("Finished") if success else tr("Stopped") if stopped else tr("Failed"))
         self.log_output.append(message)
+        if stopped:
+            return   # wanted: no error message
         if success:
             self.show_finder_btn.setEnabled(True)
             QMessageBox.information(self, tr("Success"), tr("Transcription completed!"))

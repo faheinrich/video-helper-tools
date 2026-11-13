@@ -359,3 +359,21 @@ def test_flip_mode_changes_between_original_and_result_every_two_seconds(qapp):
     dialog.mode_buttons["slider"].click()
     assert not dialog.flip_timer.isActive() and stage.handle.isVisible() and view.border_color is None
     dialog.reject()
+
+
+def test_the_original_still_plays_when_the_result_cannot_be_loaded(qapp, tmp_path, monkeypatch):
+    # Compare: waiting for both -> playing, also when one side ends as invalid instead of loaded
+    from PySide6.QtMultimedia import QMediaPlayer
+    from PySide6.QtWidgets import QMessageBox
+    from archive_helper.compressor.widgets import CompareVideoDialog
+
+    broken = tmp_path / "broken_archived.mp4"
+    broken.write_bytes(EXAMPLE_VIDEOS[0].read_bytes()[:200_000])
+    monkeypatch.setattr(QMessageBox, "critical", staticmethod(lambda *args: None))
+    dialog = CompareVideoDialog(EXAMPLE_VIDEOS[0], broken)
+    dialog.show()
+    spin(3000)
+    try:
+        assert dialog.player_orig.playbackState() == QMediaPlayer.PlaybackState.PlayingState
+    finally:
+        dialog.reject()

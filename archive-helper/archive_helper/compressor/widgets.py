@@ -752,7 +752,16 @@ class CompareVideoDialog(QDialog):
         return self.player_orig.playbackState() == QMediaPlayer.PlaybackState.PlayingState
 
     def start_when_ready(self, *_):
-        if not self.started and all(p.mediaStatus() in READY_STATUSES for p in self.players()):
+        """Starts once every video is loaded, or could not be: a broken result must not keep the original still."""
+        def settled(player):
+            return player.mediaStatus() in READY_STATUSES or failed(player)
+
+        def failed(player):
+            return (player.mediaStatus() == QMediaPlayer.MediaStatus.InvalidMedia
+                    or player.error() != QMediaPlayer.Error.NoError)
+
+        players = self.players()
+        if not self.started and all(settled(p) for p in players) and not all(failed(p) for p in players):
             self.started = True
             self.play()
 

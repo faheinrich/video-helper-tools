@@ -173,3 +173,38 @@ def test_sync_tool_volume_and_mute(qapp):
 
     sync.reset_all()
     assert sync.player1.source().isEmpty()
+
+
+def test_a_video_without_sound_is_reported_not_silently_ignored(sync, pair, tmp_path, monkeypatch):
+    # sync tool: empty -> loading -> error (shown), and synchronizing it too
+    import subprocess
+
+    silent = tmp_path / "silent.mp4"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=black:s=160x120:r=10:d=2",
+                    "-c:v", "libx264", "-preset", "ultrafast", str(silent)], check=True)
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a[2])))
+    sync.vid1_edit.setText(str(pair[0]))
+    sync.vid2_edit.setText(str(silent))
+    sync.load_videos()
+    assert len(warnings) == 1 and "silent.mp4" in warnings[0]
+    sync.calculate_sync()
+    assert len(warnings) == 2 and "silent.mp4" in warnings[1]
+    assert sync.shift == 0
+
+
+def test_a_failed_save_is_reported(sync, pair, tmp_path, monkeypatch):
+    from analysis_helper.sync import gui as sync_module
+
+    def fail(*args, **kwargs):
+        raise OSError("disk full")
+
+    errors, infos = [], []
+    monkeypatch.setattr(sync_module, "trim_video", fail)
+    monkeypatch.setattr(QMessageBox, "critical", staticmethod(lambda *a, **k: errors.append(a[2])))
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a, **k: infos.append(a[2])))
+    load(sync, pair)
+    sync.shift = 1.0
+    sync.target_edit.setText(str(tmp_path / "out"))
+    sync.save_synced_videos()
+    assert len(errors) == 1 and "disk full" in errors[0] and infos == []

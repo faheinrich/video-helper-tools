@@ -153,4 +153,9 @@ register_german({
         '<h2>Analysis Helper</h2><p>Videos synchronisieren und mit Whisper transkribieren.</p><p>Version: {version}</p>',
     'Please stop running jobs first (transcription or the local Whisper server), then change the language.':
         'Bitte beende zuerst laufende Aufträge (Transkription oder lokaler Whisper-Server) und ändere dann die Sprache.',
+    'Stopped': 'Gestoppt',
+    'Batch transcription stopped.': 'Stapel-Transkription gestoppt.',
+    'Sound': 'Ton',
+    'The sound of {name} could not be read. Does the video have a sound track?': 'Der Ton von {name} konnte nicht gelesen werden. Hat das Video eine Tonspur?',
+    'The synced videos could not be saved: {error}': 'Die synchronisierten Videos konnten nicht gespeichert werden: {error}',
 })

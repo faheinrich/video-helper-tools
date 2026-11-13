@@ -505,3 +505,59 @@ def test_stop_event_aborts_transcription_before_the_first_request(tmp_path, monk
     shutil.copy(EXAMPLE_VIDEOS[0], video)
     elan.transcribe_video(video, "h", 1, stop_event=types.SimpleNamespace(is_set=lambda: True))
     assert requests_sent == [] and not video.with_suffix(".eaf").exists()
+
+
+def stoppable_transcribe(calls, started):
+    """Waits in the first request until it is stopped, as a long video would."""
+    def transcribe(video, url, port, **kwargs):
+        calls.append(Path(video).name)
+        started.set()
+        kwargs["stop_event"].wait(10)
+    return transcribe
+
+
+def test_stopping_a_batch_ends_the_whole_batch(whisper, tmp_path, monkeypatch):
+    # batch: running -> stopped (not: on to the next file)
+    import threading
+
+    calls, started, shown = [], threading.Event(), []
+    monkeypatch.setattr(tgui, "transcribe_video", stoppable_transcribe(calls, started))
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a, **k: shown.append(a[1])))
+    for name in ("a.mp4", "b.mp4", "c.mp4"):
+        (tmp_path / name).write_bytes(b"x")
+    whisper.folder_input.setText(str(tmp_path))
+    whisper.check_folder()
+    spin(300)
+    whisper.start_batch()
+    assert started.wait(5)
+    whisper.stop_transcription()
+    for _ in range(200):
+        if whisper.start_batch_btn.isEnabled():
+            break
+        spin(50)
+    spin(300)
+    assert calls == ["a.mp4"]
+    assert whisper.start_batch_btn.isEnabled() and whisper.start_btn.isEnabled() and not whisper.stop_btn.isEnabled()
+    texts = [whisper.video_list.item(i).text() for i in range(3)]
+    assert "Gestoppt" in texts[0] and not any("Fertig" in t or "Fehlgeschlagen" in t for t in texts)
+    assert shown == []   # no "all files processed"
+
+
+def test_stopping_a_single_transcription_is_no_error(whisper, tmp_path, monkeypatch):
+    import threading
+
+    calls, started, errors = [], threading.Event(), []
+    monkeypatch.setattr(tgui, "transcribe_video", stoppable_transcribe(calls, started))
+    monkeypatch.setattr(QMessageBox, "critical", staticmethod(lambda *a, **k: errors.append(a[2])))
+    video = tmp_path / "a.mp4"
+    video.write_bytes(b"x")
+    whisper.video_input.setText(str(video))
+    whisper.start_transcription()
+    assert started.wait(5)
+    whisper.stop_transcription()
+    for _ in range(200):
+        if whisper.start_btn.isEnabled():
+            break
+        spin(50)
+    assert errors == [] and whisper.start_btn.isEnabled()
+    assert whisper.progress_label.text() == "Gestoppt"

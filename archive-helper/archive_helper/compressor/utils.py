@@ -495,7 +495,8 @@ IGNORED_METADATA_GROUPS = re.compile(r"^(ExifTool|System|File|Composite|QuickTim
 IGNORED_METADATA_TAGS = {"Encoder", "XMPToolkit", "MajorBrand", "MinorVersion", "CompatibleBrands", "CompressorName",
                          "HandlerType", "HandlerVendorID", "HandlerDescription", "CompressionSettings",
                          # ties a file to one asset of the Photos library: a compressed copy must not claim to be it
-                         "ApplePhotosOriginatingSignature"}
+                         "ApplePhotosOriginatingSignature",
+                         "Free"}   # padding boxes: room for later edits, no content
 # The stream description of other containers (AVI, AVCHD): codec, rates, sizes, counts. Their camera metadata
 # (dates, make, exposure) lives in the same groups and is still compared.
 TECHNICAL_STREAM_TAGS = {"FrameRate", "MaxDataRate", "FrameCount", "StreamCount", "StreamType", "StreamName",
@@ -540,19 +541,27 @@ def side_tracks(path):
     return tracks
 
 
+def without_track_number(tag):
+    """exiftool names unknown boxes of a track with its number (Unknown_Track2tagc); the result's tracks can be
+    numbered otherwise."""
+    return re.sub(r"Track\d+", "Track", tag)
+
+
 def missing_metadata(src_path, dst_path, kept_as_text=()):
     """Metadata of the original that the result lacks or has with another value, as "Group:Tag" names.
     A value counts as kept when the same tag holds it in any group (exiftool may file a copy elsewhere), or when
     its name is in kept_as_text (see metadata_as_text)."""
     kept_as_text = set(kept_as_text)
-    src_entries, dst_entries = metadata_entries(src_path), metadata_entries(dst_path)
+    # with the boxes exiftool has no name for, so metadata of a kind not seen before is noticed too
+    src_entries, dst_entries = metadata_entries(src_path, unknown=True), metadata_entries(dst_path, unknown=True)
     exact = set(dst_entries)
-    by_name = {(tag, value) for _, tag, value in dst_entries}
+    by_name = {(without_track_number(tag), value) for _, tag, value in dst_entries}
     missing = []
     for group, tag, value in src_entries:
         if expected_to_change(group, tag) or not value.strip() or value.startswith("(Binary data 0 bytes"):
             continue   # an empty field holds nothing to lose (exiftool does not write it)
-        if (group, tag, value) in exact or (tag, value) in by_name or f"{group}:{tag}" in kept_as_text:
+        if ((group, tag, value) in exact or (without_track_number(tag), value) in by_name
+                or f"{group}:{tag}" in kept_as_text):
             continue
         name = f"{group}:{tag}"
         if name not in missing:
@@ -593,8 +602,8 @@ def is_quicktime(path):
 def metadata_as_text(path):
     """{"Group:Tag": value} of all metadata of path that a compressed copy cannot keep as it is; binary values
     (e.g. a thumbnail) as "base64:..." strings."""
-    cmd = ["exiftool", "-config", str(EXIFTOOL_CONFIG), "-j", "-a", "-G1", "-b", "-api", "LargeFileSupport=1",
-           "-charset", "filename=utf8", str(path)]
+    cmd = ["exiftool", "-config", str(EXIFTOOL_CONFIG), "-j", "-a", "-G1", "-b", "-u", "-api", "LargeFileSupport=1",
+           "-charset", "filename=utf8", str(path)]   # -u: as missing_metadata compares
     try:
         entries = json.loads(subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=300).stdout)[0]
     except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError, IndexError):

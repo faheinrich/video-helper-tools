@@ -17,6 +17,12 @@ All notable changes to the two apps and the shared core. The format follows
   x265 writes into the video.
 - Fixed: results whose metadata was added later showed "Mac GPU · quality None": that record holds no settings.
 - Fixed: a new scan and closing the app no longer wait until the settings of every earlier result are read.
+- Fixed: the compression lab showed the result of a variant changed while it was being encoded as current.
+- Fixed: when the result could not be loaded, the compare viewer did not play the original either.
+- Fixed: when rsync could not be started (not installed, as usually on Windows), the backup page stayed at
+  "Running" forever. A stopped backup now shows "Stopped" instead of "Error".
+- Changed: the metadata check also compares boxes exiftool has no name for, so metadata of a kind not seen before
+  is reported when it is lost.
 - Added: a metadata viewer with original and result side by side (right-click > Metadata, or double-click on
   "⚠ Metadaten?"). It marks what is missing, changed or new, hides what compressing changes by its nature, and
   opens on the differences when something is missing; with a search over fields and values. It lists also the
@@ -26,11 +32,17 @@ All notable changes to the two apps and the shared core. The format follows
   movie-level keys it leaves out are now copied byte for byte.
 
 ### Analysis Helper
+- Fixed: Stop during a batch transcription stopped only the current file; the batch went on with the next one.
+  Stopping a single transcription no longer shows an error.
+- Fixed: a video without a sound track (or a broken file) did nothing visible in the sync tool on loading, finding
+  the shift or saving; it is now reported.
 - Fixed: the sync tool's players could freeze the app when they were stopped or moved while playing.
 - Fixed: the transcriber could crash right after a file was transcribed (most likely in a batch), because the finished
   transcription was freed while its thread was still ending.
 
 ### Development
+- Docs: features, architecture and the state machines with every transition and its tests (`docs/`).
+- The coverage badge is back in the README.
 - GitHub also tests on Windows.
 - Core: `MediaPlayer`, a QMediaPlayer whose play, pause, stop and setPosition let go of Python's GIL. With the plain
   one, Qt's audio thread and the call could wait for each other forever (the test runs that hung on Linux).

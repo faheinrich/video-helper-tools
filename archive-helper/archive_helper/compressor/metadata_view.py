@@ -1,5 +1,4 @@
 """Shows the metadata of an original and its result side by side: what stayed, changed, got lost or was added."""
-import re
 import threading
 from pathlib import Path
 
@@ -11,7 +10,7 @@ from PySide6.QtWidgets import (
 
 from video_helper_core.i18n import tr
 from .model import CONFLICT_COLOR, STATUS_COLORS, WARNING_COLOR
-from .utils import expected_to_change, metadata_entries, parse_exif_date, side_tracks
+from .utils import expected_to_change, metadata_entries, parse_exif_date, side_tracks, without_track_number
 
 # what a row says about a field; "same" and "moved" mean the value is in the result
 SAME, MOVED, CHANGED, MISSING, ADDED, EXPECTED = "same", "moved", "changed", "missing", "added", "expected"
@@ -28,8 +27,8 @@ def compared(group, tag, value=None):
 
 
 def same_name(a, b):
-    """Field names that differ only in a track number (exiftool names unknown track boxes Unknown_Track2tagc)."""
-    return a == b or re.sub(r"Track\d+", "Track", a) == re.sub(r"Track\d+", "Track", b)
+    """Field names that differ only in a track number (see without_track_number)."""
+    return a == b or without_track_number(a) == without_track_number(b)
 
 
 def compare_entries(src_entries, dst_entries):

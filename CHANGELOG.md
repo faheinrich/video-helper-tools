@@ -6,6 +6,11 @@ All notable changes to the two apps and the shared core. The format follows
 
 ## [Unreleased]
 
+### Archive Helper
+- Fixed: iPhone videos filmed in Cinematic mode lost their two Cinematic keys (`cinematic-video`,
+  `cinematic-video-intent`) and showed "⚠ Metadaten?". exiftool does not know these keys and so cannot write them;
+  movie-level keys it leaves out are now copied byte for byte.
+
 ### Analysis Helper
 - Fixed: the sync tool's players could freeze the app when they were stopped or moved while playing.
 - Fixed: the transcriber could crash right after a file was transcribed (most likely in a batch), because the finished

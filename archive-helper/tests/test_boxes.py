@@ -364,3 +364,33 @@ def test_sonys_xml_next_to_the_moov_box_reaches_the_result(qapp, tmp_path):
 
     assert subprocess.run([*model, str(out)], capture_output=True, text=True).stdout.split() == ["ILCE-7M3", "3312345"]
     assert "metadata_missing" not in data["settings"]
+
+
+@requires_exiftool
+def test_movie_keys_exiftool_does_not_know_reach_the_result(qapp, tmp_path):
+    # iPhones in Cinematic mode mark the whole video with keys exiftool reads but cannot write
+    # (com.apple.quicktime.cinematic-video ...): they were reported missing.
+    from archive_helper.compressor.boxes import copy_movie_keys, keys_meta, make_box
+
+    src = tmp_path / "src"
+    src.mkdir()
+    clip = make_clip(src / "IMG_7.MOV", size="320x240", seconds=1)
+    subprocess.run(["exiftool", "-q", "-overwrite_original", "-Keys:Make=Apple", str(clip)], check=True)
+    value = make_box(b"data", struct.pack(">II", 0, 0) + b"\x00\x00\x00\x10cvid" + bytes(range(8)))
+    handler = make_box(b"hdlr", b"\0" * 8 + b"mdta" + b"\0" * 13)
+    donor = tmp_path / "donor.mp4"
+    donor.write_bytes(make_box(b"moov", keys_meta([(b"mdtacom.apple.quicktime.cinematic-video", value)], handler)))
+    assert copy_movie_keys(donor, clip) == ["com.apple.quicktime.cinematic-video"]
+
+    def keys(path):
+        return subprocess.run(["exiftool", "-s", "-s", "-s", "-b", "-Keys:Make", "-Keys:Cinematic-video", str(path)],
+                              capture_output=True, check=True).stdout
+
+    assert b"cvid" in keys(clip)
+
+    out, message, data = compress(qapp, src, "IMG_7.MOV")
+
+    assert message.startswith("✅")
+    assert keys(out) == keys(clip)
+    assert "metadata_missing" not in data["settings"]
+    assert copy_movie_keys(clip, out) == []   # nothing doubled

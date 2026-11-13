@@ -14,7 +14,7 @@ from PySide6.QtGui import QImage
 
 from video_helper_core.i18n import tr
 from video_helper_core.trash import move_to_trash
-from .boxes import BoxError, copy_maker_boxes, copy_track_metadata, transplant_tracks
+from .boxes import BoxError, copy_maker_boxes, copy_movie_keys, copy_track_metadata, transplant_tracks
 from .utils import (
     DEFAULT_POSTFIX, EXIFTOOL_CONFIG, block_sample_starts, blockiness_command, is_blocky, parse_blockiness, DurationCache, partial_path, path_key, same_file, copy_file_times, format_size, generate_thumbnail, get_thumbnail_path, get_video_info, is_photos_compatible,
     LEGACY_TAG_COPIES, capture_date_arguments, copy_sidecars, is_quicktime, metadata_as_text, missing_metadata, source_description, get_audio_streams, get_hdr_color, parse_ffmpeg_time, read_compression_settings, settings_tag_argument,
@@ -590,6 +590,10 @@ def carry_metadata(src_path, target, record, date_arguments=(), tracks=True, ext
              str(target), "-overwrite_original", "-q"], check=True)
     except Exception as e:
         return tr(" ⚠️ (metadata could not be copied: {error})", error=e)
+    try:
+        copy_movie_keys(src_path, target)   # after exiftool: the keys it does not know (Apple's cinematic video)
+    except (OSError, BoxError, struct.error) as e:
+        print(f"Movie keys of {Path(src_path).name} not copied: {e}")
     try:
         missing = missing_metadata(src_path, target, record.get("source_metadata", {}))
         if missing:

@@ -468,3 +468,88 @@ def copy_track_metadata(src_path, dst_path):
         children.append((raw, box[0] == b"trak"))
     write_moov(dst_path, top, moov, children)
     return copied
+
+
+def meta_children(data, meta):
+    """meta as a box whose children find() can walk: QuickTime's meta has none of ISO's version and flags."""
+    start = meta[1] + meta[2]
+    full = data[start + 4:start + 8] != b"hdlr" and data[start + 8:start + 12] == b"hdlr"
+    return (meta[0], meta[1], meta[2] + (4 if full else 0), meta[3]), full
+
+
+def movie_keys(data, meta):
+    """[(key name, ilst item payload or None)] of a moov-level meta box (Apple's mdta keys), in key order."""
+    meta, _ = meta_children(data, meta)
+    keys, ilst = find(data, meta, b"keys"), find(data, meta, b"ilst")
+    if keys is None:
+        return []
+    body = payload(data, keys)
+    names, pos = [], 8
+    for _ in range(struct.unpack(">I", body[4:8])[0]):
+        size = struct.unpack(">I", body[pos:pos + 4])[0]
+        if size < 8 or pos + size > len(body):
+            raise BoxError("malformed keys box")
+        names.append(body[pos + 4:pos + size])   # namespace + name
+        pos += size
+    items = {}
+    if ilst is not None:
+        for item in iter_boxes(data, ilst[1] + ilst[2], ilst[1] + ilst[3]):
+            items[struct.unpack(">I", item[0])[0]] = payload(data, item)
+    return [(name, items.get(index)) for index, name in enumerate(names, 1)]
+
+
+def keys_meta(entries, handler, full=False):
+    """A moov-level meta box from [(key name, item payload)] and the handler box to use (full: ISO's version and
+    flags in front, as some writers do)."""
+    keys = make_box(b"keys", struct.pack(">II", 0, len(entries))
+                    + b"".join(struct.pack(">I", 4 + len(name)) + name for name, _ in entries))
+    ilst = make_box(b"ilst", b"".join(make_box(struct.pack(">I", index), item)
+                                      for index, (_, item) in enumerate(entries, 1) if item is not None))
+    return make_box(b"meta", (b"\0" * 4 if full else b"") + handler + keys + ilst)
+
+
+def copy_movie_keys(src_path, dst_path):
+    """Adds the movie-level keys of src (Apple's mdta keys) that dst lacks, with their values byte for byte:
+    exiftool writes only keys it knows, and leaves out e.g. Apple's cinematic-video keys. Runs after exiftool;
+    keys dst already has stay as they are. Returns the names added."""
+    src_top = top_level_boxes(src_path)
+    src_moov = next((b for b in src_top if b[0] == b"moov"), None)
+    if src_moov is None:
+        return []
+    src_data = read_box(src_path, src_moov)
+    src_meta = find(src_data, (b"moov", 0, src_moov[2], src_moov[3]), b"meta")
+    if src_meta is None:
+        return []
+    src_entries = [(name, item) for name, item in movie_keys(src_data, src_meta) if item is not None]
+    if not src_entries:
+        return []
+
+    dst_path = Path(dst_path)
+    top = top_level_boxes(dst_path)
+    moov = next((b for b in top if b[0] == b"moov"), None)
+    if moov is None:
+        raise BoxError("no moov box")
+    data = read_box(dst_path, moov)
+    meta = find(data, (b"moov", 0, moov[2], moov[3]), b"meta")
+    entries = movie_keys(data, meta) if meta is not None else []
+    have = {name for name, item in entries if item is not None}
+    added = [(name, item) for name, item in src_entries if name not in have]
+    if not added:
+        return []
+    entries = [(name, item) for name, item in entries if item is not None] + added
+    # the handler (and the form of the box) of dst's meta, else of src's
+    owner, box = (data, meta) if meta is not None else (src_data, src_meta)
+    box, full = meta_children(owner, box)
+    hdlr = find(owner, box, b"hdlr")
+    if hdlr is None:
+        raise BoxError("movie meta without handler")
+    new_meta = keys_meta(entries, owner[hdlr[1]:hdlr[1] + hdlr[3]], full)
+
+    children = []
+    for box in iter_boxes(data, moov[2]):
+        if box[0] == b"meta":
+            continue
+        children.append((data[box[1]:box[1] + box[3]], box[0] == b"trak"))
+    children.append((new_meta, False))
+    write_moov(dst_path, top, moov, children)
+    return [name[4:].decode("utf-8", "replace") for name, _ in added]

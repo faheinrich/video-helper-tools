@@ -36,7 +36,9 @@ from analysis_helper.sync.video_synch import sync_videos
 sync_videos(path_to_video_1, path_to_video_2)  # pathlib.Path objects
 ```
 
-This writes the synchronized videos into a `results/` folder next to the first video.
+This writes the synchronized videos (and the extracted WAV files) into a `results/` folder next to the first video.
+It also opens a matplotlib window with the two signals and their cross-correlation and waits until it is closed; to
+get only the shift, use `calculate_shift_fft(signal_1, signal_2)` with `plot=False` (the default).
 
 Sample videos are provided in `example_resources/`.
 

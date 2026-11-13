@@ -38,8 +38,14 @@ The repository is a [uv](https://docs.astral.sh/uv/) workspace with one lock fil
 
 ```bash
 uv sync --all-packages              # one environment with everything, including the dev tools
-uv run pytest core/tests archive-helper/tests analysis-helper/tests    # run each folder separately in CI
+uv run --package video-helper-core pytest core/tests
+uv run --package archive-helper pytest archive-helper/tests
+uv run --package analysis-helper pytest analysis-helper/tests
 ```
+
+Run each folder on its own (as CI does): the folders share test file names (`test_app.py`, `test_i18n.py`, …), so one
+pytest call over all three stops while collecting, and each package's pytest settings (timeouts) only apply in its
+own folder.
 
 Building an app (`build.sh`) uses `uv sync --inexact`, so it does not remove the other packages from this environment.
 FFmpeg and ExifTool are needed for most tests (they are skipped when missing).

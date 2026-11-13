@@ -29,9 +29,14 @@ def trash(tmp_path, monkeypatch):
     folder = tmp_path / "Trash"
 
     def to_folder(path):
+        """Like the real trash: keeps every file, a second one of the same name under another name."""
         folder.mkdir(exist_ok=True)
-        shutil.move(str(path), folder / path.name)
-        return True
+        target, number = folder / path.name, 1
+        while target.exists():
+            number += 1
+            target = folder / f"{path.stem} {number}{path.suffix}"
+        shutil.move(str(path), target)
+        return str(target)
 
     monkeypatch.setattr(trash_module, "_system_trash", to_folder)
     return folder

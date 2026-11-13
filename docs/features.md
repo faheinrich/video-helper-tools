@@ -35,7 +35,8 @@ fraction of the space. It keeps all the metadata, so the results can replace the
   - A collision that cannot be resolved is marked "Duplicate target name".
   - A target that would be the source itself is marked "Source = target!". Starting then needs a confirmation
     with a delayed button, and the original is replaced and goes to the trash.
-- **Excludes** (patterns) and "Ignore hidden files/folders".
+- **Skip names ending in** (comma-separated; default `_archived, _compressed, _source`; the result postfix is always
+  skipped) and "Ignore hidden files/folders".
 - The folder is scanned again automatically when the folders or name settings change.
 
 #### The list
@@ -80,8 +81,8 @@ fraction of the space. It keeps all the metadata, so the results can replace the
   - Presets "small", "archive" (CRF 20 / quality 65), "high", with a description of what the value means.
 - **Limits**: resolution (long side 3840, 2560, 1920, 1280, 720 px) and frame rate (60, 50, 30, 25, 24 fps).
   They only ever reduce.
-- **Audio**: AAC copied 1:1 when every track is AAC, otherwise AAC 128 kbit/s. All audio tracks are kept, with
-  their names.
+- **Audio**: AAC copied 1:1 when every track is AAC ("Copy AAC audio 1:1", on by default), otherwise AAC 128 kbit/s.
+  All audio tracks are kept, with their names.
 - **HDR** stays HDR: 10-bit HEVC with the original's color tags (HLG, PQ). SDR stays 8-bit.
 - **Output** is always `hvc1`-tagged HEVC in MP4, which Apple Photos imports.
 - Parallel videos, Low priority, Test run (first second only), Overwrite existing results, Keep computer awake.
@@ -99,7 +100,8 @@ fraction of the space. It keeps all the metadata, so the results can replace the
   - An existing file is never overwritten: it goes to the trash.
   - A result is never deleted for good.
 - **Larger than the original**: the result is kept, and the original is copied next to it as `NAME_source.ext`
-  when Apple Photos can import it.
+  when Apple Photos can import it (not when the result is in the original's folder anyway). A result that would
+  replace its original only does so when it is smaller.
 - **Block check** after each video: compares flat areas of the result with the original and warns about visible
   compression blocks ("⚠ blocks?").
 - **Notification** when a run ends by itself.
@@ -127,8 +129,8 @@ The result keeps the metadata of the original, so an archive loses nothing but r
   - the original's name, size and format;
   - what metadata could not be carried over.
 - **The check**: afterwards the original and the result are compared field by field, including boxes exiftool
-  has no name for. Anything missing marks the video "⚠ Metadaten?".
-- **Metadata viewer** (right-click > Metadata, or double-click on "⚠ Metadaten?"):
+  has no name for. Anything missing marks the video "⚠ metadata?".
+- **Metadata viewer** (right-click > Metadata, or double-click on "⚠ metadata?"):
   - shows the original and the result side by side;
   - marks what is missing, changed, new, kept elsewhere or changed by compressing;
   - has a search and "Only differences", and can also read the data stored with every frame.

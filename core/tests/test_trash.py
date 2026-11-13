@@ -26,3 +26,14 @@ def test_a_missing_file_is_an_error(tmp_path):
 
     with pytest.raises(FileNotFoundError):
         move_to_trash(tmp_path / "gone.mov")
+
+
+def test_moving_to_the_trash_tells_where_the_file_is_now(tmp_path, trash):
+    from video_helper_core.trash import move_to_trash
+
+    first, second = tmp_path / "a" / "clip.mov", tmp_path / "b" / "clip.mov"
+    for path, data in ((first, b"1"), (second, b"2")):
+        path.parent.mkdir()
+        path.write_bytes(data)
+    assert move_to_trash(first).read_bytes() == b"1"
+    assert move_to_trash(second).read_bytes() == b"2"   # same name: both kept

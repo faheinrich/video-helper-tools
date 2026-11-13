@@ -392,4 +392,7 @@ register_german({
     'Also reads the data stored with every frame (GPS tracks, camera data per frame). Takes a while on long videos.': 'Liest auch die Daten, die mit jedem Bild gespeichert sind (GPS-Spuren, Kameradaten pro Bild). Dauert bei langen Videos eine Weile.',
     'rsync could not be started: {error}': 'rsync konnte nicht gestartet werden: {error}',
     'Stopped': 'Gestoppt',
+    '{name} is no longer in the trash.': '{name} ist nicht mehr im Papierkorb.',
+    'There is a file named {name} again.': 'Es gibt wieder eine Datei namens {name}.',
+    '{name} is gone.': '{name} ist nicht mehr da.',
 })

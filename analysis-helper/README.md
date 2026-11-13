@@ -26,7 +26,8 @@ uv run --package analysis-helper annotate-to-elan --video_path YOURVIDEOFILE
 
 FFmpeg must be installed. Because of PyTorch and OpenCV the app is large.
 
-Settings are stored per user, e.g. `~/Library/Application Support/Analysis Helper/settings.json` on macOS.
+Settings are stored per user, e.g. `~/Library/Application Support/Analysis Helper/settings.json` on macOS. The
+transcriber keeps its own settings (server, model, language, VAD and tier name) in `~/.whisper_gui_settings.json`.
 
 ## Example media
 

@@ -74,7 +74,11 @@ else from it.
 app.py                 AppSpec with the two tools; main()
 translations.py        German texts
 compressor/
-  gui.py               ArchiverGUI: the page (folders, drawer, table, run control, file actions)
+  gui.py               ArchiverGUI: the page's layout, the scan and the summary; composed of the three mixins below
+  drawer.py            SettingsDrawer: the settings drawer and the saved defaults
+  run_control.py       RunControl: start, pause, stop, and what the worker reports per video
+  row_actions.py       RowActions: menus, detail bar, viewers, file actions and their undo
+  file_actions.py      replace / swap / move to the trash, each recording its steps; undo
   model.py             VideoRow, VideoTableModel, VideoFilterProxy, delegates, status texts and sort keys
   workers.py           ArchiveWorker and the background workers; carry_metadata, add_missing_metadata
   boxes.py             MP4/MOV box reading and writing: maker boxes, track transplant, track and movie keys
@@ -173,6 +177,10 @@ Old formats (AVI, AVCHD) cannot hold their structures in MP4. Their values go to
 - The result's file times are kept.
 
 ### File safety
+
+File actions (`file_actions.py`) record their steps: a file moved to the trash (with its place there, which the
+trash reports), a moved file, a file the action made. Undo takes them back, the last first, after checking on a
+model of the file system that every step can be taken back; otherwise it changes nothing.
 
 - A result is written to `NAME.partial.mp4` and renamed with `os.replace` only when complete.
 - Anything replaced or removed (an earlier result, a replaced original, file actions) goes through

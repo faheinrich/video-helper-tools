@@ -1083,7 +1083,7 @@ def fake_worker(monkeypatch):
     """An ArchiveWorker that only waits, so pause/stop logic can be tested without ffmpeg."""
     from PySide6.QtCore import QThread, Signal
 
-    from archive_helper.compressor import gui as gui_module
+    from archive_helper.compressor import run_control
 
     class Fake(QThread):
         progress_step = Signal(int, str)
@@ -1113,7 +1113,7 @@ def fake_worker(monkeypatch):
         def set_queue(self, items):
             pass
 
-    monkeypatch.setattr(gui_module, "ArchiveWorker", Fake)
+    monkeypatch.setattr(run_control, "ArchiveWorker", Fake)
     return Fake
 
 
@@ -1417,17 +1417,17 @@ def test_a_target_that_is_another_source_video_counts_as_source_equals_target(qa
 
 
 def test_starting_with_source_equals_target_needs_the_delayed_confirmation(qapp, make_gui, tmp_path, fake_worker, monkeypatch):
-    from archive_helper.compressor import gui as gui_module
+    from archive_helper.compressor import run_control
 
     src = tmp_path / "src"
     gui, rows = scanned_rows(qapp, make_gui, tmp_path, ["clip.mp4"], postfix="", dst=src)
     asked = []
-    monkeypatch.setattr(gui_module, "confirm_after_delay", lambda *args: asked.append(args) or False)
+    monkeypatch.setattr(run_control, "confirm_after_delay", lambda *args: asked.append(args) or False)
     gui.start_archiving()
     assert len(asked) == 1 and not gui.is_archiving()
     assert "1 Videos" in asked[0][2] and "ERSETZT" in asked[0][2] and asked[0][3] == "Originale ersetzen"
 
-    monkeypatch.setattr(gui_module, "confirm_after_delay", lambda *args: asked.append(args) or True)
+    monkeypatch.setattr(run_control, "confirm_after_delay", lambda *args: asked.append(args) or True)
     gui.start_archiving()
     assert gui.is_archiving()
     gui.stop_archiving()
@@ -1435,10 +1435,10 @@ def test_starting_with_source_equals_target_needs_the_delayed_confirmation(qapp,
 
 
 def test_no_confirmation_when_nothing_replaces_an_original(qapp, make_gui, tmp_path, fake_worker, monkeypatch):
-    from archive_helper.compressor import gui as gui_module
+    from archive_helper.compressor import run_control
 
     gui, rows = scanned_rows(qapp, make_gui, tmp_path, ["clip.mp4"])
-    monkeypatch.setattr(gui_module, "confirm_after_delay", lambda *args: pytest.fail("no warning expected"))
+    monkeypatch.setattr(run_control, "confirm_after_delay", lambda *args: pytest.fail("no warning expected"))
     gui.start_archiving()
     assert gui.is_archiving()
     gui.stop_archiving()
@@ -1518,7 +1518,7 @@ def test_no_new_thumbnails_are_made_while_the_viewer_is_open(qapp, make_gui, tmp
     # Thumbnails of a large folder kept the disk and the CPU busy, so the viewer could hardly play.
     from types import SimpleNamespace
 
-    from archive_helper.compressor import gui as gui_module
+    from archive_helper.compressor import row_actions
 
     seen = []
 
@@ -1529,7 +1529,7 @@ def test_no_new_thumbnails_are_made_while_the_viewer_is_open(qapp, make_gui, tmp
         def exec(self):
             seen.append(gui.thumbnails.allowed.is_set())
 
-    monkeypatch.setattr(gui_module, "CompareVideoDialog", FakeDialog)
+    monkeypatch.setattr(row_actions, "CompareVideoDialog", FakeDialog)
     gui = make_gui()
     video = tmp_path / "a.mp4"
     video.write_bytes(b"x")

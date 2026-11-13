@@ -311,7 +311,7 @@ def test_drawer_settings_survive_a_round_trip(qapp, make_gui):
 def test_the_detail_bar_offers_the_lab_next_to_process_next(qapp, make_gui, tmp_path, monkeypatch):
     from PySide6.QtWidgets import QPushButton
 
-    from archive_helper.compressor import gui as gui_module
+    from archive_helper.compressor import row_actions
     from archive_helper.compressor.model import VideoRow
 
     video = tmp_path / "a.mp4"
@@ -334,7 +334,7 @@ def test_the_detail_bar_offers_the_lab_next_to_process_next(qapp, make_gui, tmp_
         def show(self):
             pass
 
-    monkeypatch.setattr(gui_module, "CompressionLabDialog", Stub)
+    monkeypatch.setattr(row_actions, "CompressionLabDialog", Stub)
     gui.combo_renderer.setCurrentIndex(0)
     gui.slider_crf.setValue(31)
     gui.open_lab(gui.model.rows[0])

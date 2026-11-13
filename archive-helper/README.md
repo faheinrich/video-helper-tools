@@ -5,7 +5,8 @@ Desktop app (PySide6) to shrink a video collection for the archive and to back u
 - **Compress & Archive** — batch-compress videos with FFmpeg and keep their metadata (ExifTool): capture date, GPS, camera data, file times.
   - HEVC output tagged `hvc1`, so it imports into Apple Photos
   - optional hardware encoding, resolution and frame-rate limits, HDR sources stay HDR
-  - results that would be larger than the original are skipped
+  - a result larger than the original is kept, and the original is copied next to it as `NAME_source.ext` when
+    Apple Photos can import it; a result that would replace the original only does so when it is smaller
   - live progress, side-by-side comparison of original and result, CSV export
   - editable result postfix (default `_archived`) and a list of name endings to skip in the source folder
 - **Backup (rsync)** — a GUI around `rsync` for mirroring folders to a drive, with progress.

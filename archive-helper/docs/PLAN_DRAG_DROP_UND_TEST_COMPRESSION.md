@@ -1,6 +1,7 @@
 # Plan: Drag and Drop, Schutz vor Überschreiben, „Test Compression“
 
-Stand: Entwurf, noch nichts umgesetzt. Abschnitt A ist umgesetzt, B und C folgen.
+Stand: A und B sind umgesetzt, C als erster Entwurf (siehe dort, was noch offen ist). Die Abschnitte beschreiben den
+ursprünglichen Plan; Abweichungen stehen jeweils am Anfang.
 
 ## Ausgangslage (im Code geprüft)
 
@@ -44,14 +45,14 @@ Stand: Fenster mit Ausschnitt, drei Varianten, Größen und Hochrechnung, Einzel
 
 Ein Knopf **„Inspect different compressions“ neben „Process next“** in der Leiste der markierten Zeile öffnet ein eigenes Fenster für dieses Video.
 
-1. **Ausschnitt:** Standard 10 Sekunden aus der Mitte (Regler für Startpunkt und Länge), damit Varianten in Sekunden entstehen und nicht ganze Videos kodiert werden.
-2. **Varianten:** bis zu vier Spalten, jede mit eigenem Encoder, CRF/Qualität, Preset, Auflösung, Bildrate. Vorbelegt mit den aktuellen Einstellungen und den drei Presets Klein/Archiv/Hoch.
-3. **Anzeige nebeneinander:** pro Variante ein Bild (ein Standbild, das sich per Regler ändern lässt, plus abspielbar und synchron), Dateigröße des Ausschnitts, **hochgerechnete Größe des ganzen Videos**, Kodierdauer.
-4. **Vergleich:** Original und Varianten mit Zoom 100 % und 200 %, gemeinsames Scrollen und Verschieben (die vorhandene `ZoomableVideoView` und die Synchronisierung des Vergleichsfensters werden für N Spieler verallgemeinert).
+1. **Ausschnitt:** Standard die ersten 10 Sekunden (ursprünglich geplant: aus der Mitte), Start und Länge frei wählbar, damit Varianten in Sekunden entstehen und nicht ganze Videos kodiert werden.
+2. **Varianten:** bis zu acht Spalten (ursprünglich vier), jede mit eigenem Encoder, CRF/Qualität, Preset, Auflösung, Bildrate. Vorbelegt mit den aktuellen Einstellungen und den drei Presets Klein/Archiv/Hoch.
+3. **Anzeige nebeneinander:** pro Variante ein Bild (ein Standbild, das sich per Regler ändern lässt; abspielbar und synchron ist noch offen), Dateigröße des Ausschnitts, **hochgerechnete Größe des ganzen Videos**, Kodierdauer.
+4. **Vergleich:** Original und Varianten als Einzelbilder mit Einpassen und Zoomstufen, gemeinsames Verschieben. Noch offen: synchrones Abspielen für N Spieler (dafür müssten die vorhandene `ZoomableVideoView` und die Synchronisierung des Vergleichsfensters verallgemeinert werden).
 5. **Übernehmen:** „Diese Einstellungen verwenden“ schreibt die gewählte Variante in den Einstellungs-Drawer.
 6. **Technik:** ffmpeg-Aufrufe wie im `ArchiveWorker`, aber mit `-ss/-t` und in ein temporäres Verzeichnis (wird beim Schließen gelöscht, nie im Zielordner). Läuft über denselben Befehlsbau wie der normale Lauf, damit die Vorschau wirklich dem Ergebnis entspricht (HDR, Audio, Filter).
 
-Tests: Befehlsbau identisch zum normalen Lauf (gleiche Argumente bis auf `-ss/-t`), Hochrechnung der Größe, Aufräumen der temporären Dateien, Übernahme der Einstellungen, Fenster mit 1–4 Varianten.
+Tests: Befehlsbau identisch zum normalen Lauf (gleiche Argumente bis auf `-ss/-t`), Hochrechnung der Größe, Aufräumen der temporären Dateien, Übernahme der Einstellungen, Fenster mit 1–8 Varianten.
 
 ## Reihenfolge und Aufwand
 
@@ -60,11 +61,11 @@ Tests: Befehlsbau identisch zum normalen Lauf (gleiche Argumente bis auf `-ss/-t
 | 1 | A: Schutz, rote Warnung, Teildatei, Dialog, Kollisionsnamen | erledigt |
 | 2 | B: Overlay + Ordner auf Liste | erledigt |
 | 3 | B: Dateimodus (Worker, Liste, Hinweisband) | erledigt |
-| 4 | C: Fenster, Varianten, Größen, Vorschaubilder | mittel |
-| 5 | C: synchrones Abspielen und Zoom für N Varianten | mittel bis groß |
+| 4 | C: Fenster, Varianten, Größen, Vorschaubilder | erledigt |
+| 5 | C: synchrones Abspielen für N Varianten (Zoom für Einzelbilder ist erledigt) | offen, mittel bis groß |
 
-## Offene Fragen
+## Fragen (entschieden)
 
-- Soll der Dateimodus Einstellungen (Quelle/Ziel) speichern, oder nur beim nächsten Start den Ordnermodus laden? Vorschlag: nur Ordnermodus speichern.
-- „Test Compression“: wie viele Varianten höchstens? Vorschlag: vier.
-- Darf der Dateimodus ein leeres Postfix mit anderem Zielordner erlauben (Name bleibt, Endung `.mp4`)? Vorschlag: ja, solange `same_file` nichts findet.
+- Soll der Dateimodus Einstellungen (Quelle/Ziel) speichern, oder nur beim nächsten Start den Ordnermodus laden? Entschieden: nur der Ordnermodus wird gespeichert (`save_defaults`).
+- „Test Compression“: wie viele Varianten höchstens? Entschieden: acht (`MAX_VARIANTS` in `compressor/lab.py`).
+- Darf der Dateimodus ein leeres Postfix mit anderem Zielordner erlauben (Name bleibt, Endung `.mp4`)? Entschieden: ja; Quelle = Ziel wird wie überall rot markiert und vor dem Start bestätigt.

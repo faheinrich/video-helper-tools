@@ -6,6 +6,10 @@ All notable changes to the two apps and the shared core. The format follows
 
 ## [Unreleased]
 
+## [0.0.6] and [analysis-v0.0.4] - 2026-11-13
+
+Archive Helper `archive-v0.0.6` and Analysis Helper `analysis-v0.0.4`.
+
 ### Archive Helper
 - Added: undo and redo for the file actions (replace, swap, move to the trash): Edit menu, Cmd+Z / Shift+Cmd+Z
   (Ctrl+Z / Ctrl+Y on Windows and Linux). The files come back from the trash; when that is no longer possible
@@ -298,7 +302,9 @@ settings of the former app are copied once on first start.
 - GitHub workflow builds macOS, Linux and Windows packages per app when its tag is pushed; the tag must match the
   version in the app's `pyproject.toml`.
 
-[Unreleased]: https://github.com/faheinrich/video-helper-tools/compare/archive-v0.0.3...HEAD
+[Unreleased]: https://github.com/faheinrich/video-helper-tools/compare/archive-v0.0.6...HEAD
+[0.0.6]: https://github.com/faheinrich/video-helper-tools/compare/archive-v0.0.5...archive-v0.0.6
+[analysis-v0.0.4]: https://github.com/faheinrich/video-helper-tools/compare/analysis-v0.0.3...analysis-v0.0.4
 [0.0.3]: https://github.com/faheinrich/video-helper-tools/compare/archive-v0.0.2...archive-v0.0.3
 [0.0.2]: https://github.com/faheinrich/video-helper-tools/compare/archive-v0.0.1...archive-v0.0.2
 [archive-v0.0.1]: https://github.com/faheinrich/video-helper-tools/releases/tag/archive-v0.0.1

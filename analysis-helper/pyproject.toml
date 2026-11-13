@@ -1,6 +1,6 @@
 [project]
 name = "analysis-helper"
-version = "0.0.3"
+version = "0.0.4"
 description = "Desktop app for synchronising videos by their audio and transcribing them with Whisper."
 readme = "README.md"
 requires-python = ">=3.12"
